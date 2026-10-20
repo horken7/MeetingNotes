@@ -437,20 +437,54 @@ final class AppModel: ObservableObject {
 final class Notifier: NSObject, UNUserNotificationCenterDelegate {
     static let shared = Notifier()
 
+    /// Last notification error, shown in Settings (UserDefaults, so it survives relaunches).
+    static let errorKey = "notificationError"
+
     func setUp() {
-        let center = UNUserNotificationCenter.current()
-        center.delegate = self
-        center.requestAuthorization(options: [.alert, .sound]) { _, _ in }
+        UNUserNotificationCenter.current().delegate = self
+        requestPermission { _ in }
     }
 
-    func post(title: String, body: String, folder: URL) {
+    func requestPermission(_ done: @escaping @Sendable (Bool) -> Void) {
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { ok, error in
+            Notifier.record(error)
+            done(ok)
+        }
+    }
+
+    func post(title: String, body: String, folder: URL?) {
         let content = UNMutableNotificationContent()
         content.title = title
         content.body = body
         content.sound = .default
-        content.userInfo = ["folder": folder.path]
-        UNUserNotificationCenter.current().add(
-            UNNotificationRequest(identifier: folder.path, content: content, trigger: nil))
+        if let folder { content.userInfo = ["folder": folder.path] }
+        let request = UNNotificationRequest(identifier: folder?.path ?? UUID().uuidString, content: content, trigger: nil)
+        // Ask again if needed (e.g. the first request at launch was missed), then post.
+        requestPermission { _ in
+            UNUserNotificationCenter.current().add(request) { error in
+                Notifier.record(error)
+                // macOS refuses notification permission for ad-hoc signed apps, so fall back to an
+                // AppleScript notification (shown by Script Editor; clicking it doesn't open the meeting).
+                if error != nil { Task { await Notifier.scriptNotification(title: title, body: body) } }
+            }
+        }
+    }
+
+    static func scriptNotification(title: String, body: String) async {
+        func quoted(_ s: String) -> String {
+            "\"" + s.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"") + "\""
+        }
+        _ = await runProcess("/usr/bin/osascript", ["-e",
+            "display notification \(quoted(body)) with title \(quoted(title)) sound name \"Glass\""])
+    }
+
+    private static func record(_ error: Error?) {
+        if let error {
+            NSLog("MeetingNotes: notification error: \(error)")
+            UserDefaults.standard.set(error.localizedDescription, forKey: errorKey)
+        } else {
+            UserDefaults.standard.removeObject(forKey: errorKey)
+        }
     }
 
     /// First paragraph of the notes (the summary), shortened for the notification.

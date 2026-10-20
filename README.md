@@ -67,7 +67,9 @@ If Claude Code isn't logged in yet, run `claude` in Terminal once and log in.
 - Join a call. A "Meeting detected" prompt appears after a few seconds: **Start notes**, **Not now**, or
   **Never for this app**. You can also press **Start meeting** in the window or the menu bar.
 - The menu bar icon shows the state: waveform (idle), red dot (recording), hourglass (transcribing / writing notes).
-- When the notes are ready you get a notification; click it to open the meeting.
+- When the notes are ready you get a notification; click it to open the meeting. macOS refuses notification
+  permission for ad hoc signed apps, so in that case the alert is sent through Script Editor instead (allow Script
+  Editor under System Settings > Notifications). Settings > Setup shows the status and has a **Send test** button.
 - Closing the window keeps the app running in the menu bar (no Dock icon). Open it again from the menu bar or
   by opening the app. It starts at login by default; turn that off in Settings.
 - Leave the call and recording stops on its own about 5 seconds later. Transcription takes roughly a minute per

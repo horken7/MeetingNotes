@@ -1,6 +1,7 @@
 import SwiftUI
 import AppKit
 import ServiceManagement
+import UserNotifications
 
 // MARK: Main window
 
@@ -451,6 +452,7 @@ struct SettingsView: View {
                         Button("Microphone permission…") { openPrivacy("Privacy_Microphone") }
                         Button("Screen & System Audio permission…") { openPrivacy("Privacy_ScreenCapture") }
                     }
+                    NotificationRow()
                 }
             }
             .formStyle(.grouped)
@@ -496,6 +498,51 @@ struct SettingsView: View {
     private func openPrivacy(_ anchor: String) {
         if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?\(anchor)") {
             NSWorkspace.shared.open(url)
+        }
+    }
+}
+
+/// Notification permission state, with buttons to allow, open System Settings or send a test.
+struct NotificationRow: View {
+    @State private var status: UNAuthorizationStatus?
+    @AppStorage(Notifier.errorKey) private var lastError = ""
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Image(systemName: allowed ? "checkmark.circle.fill" : "xmark.circle.fill")
+                    .foregroundStyle(allowed ? Color.green : Color.red)
+                Text(allowed ? "Notifications when notes are ready" : "Notifications (fallback via Script Editor)")
+                Spacer()
+                if status == .notDetermined {
+                    Button("Allow…") { Notifier.shared.requestPermission { _ in Task { @MainActor in refresh() } } }
+                } else if !allowed {
+                    Button("Open Settings…") {
+                        let id = Bundle.main.bundleIdentifier ?? ""
+                        if let url = URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension?id=\(id)") {
+                            NSWorkspace.shared.open(url)
+                        }
+                    }
+                }
+                Button("Send test") {
+                    Notifier.shared.post(title: "Meeting Notes", body: "Notifications are working.", folder: nil)
+                    Task { try? await Task.sleep(for: .seconds(1)); refresh() }
+                }
+            }
+            if !allowed, !lastError.isEmpty {
+                Text("macOS said: \(lastError). Notes-ready alerts are sent through Script Editor instead; allow Script Editor in System Settings > Notifications if they don't appear.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .task { refresh() }
+    }
+
+    private var allowed: Bool { status == .authorized || status == .provisional }
+
+    private func refresh() {
+        UNUserNotificationCenter.current().getNotificationSettings { s in
+            let st = s.authorizationStatus
+            Task { @MainActor in status = st }
         }
     }
 }
