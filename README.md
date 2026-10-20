@@ -21,7 +21,10 @@ A small native macOS app that records your video calls, transcribes them **on yo
   </picture>
 </p>
 <p align="center">
-  <img src="docs/images/prompt.png" alt="The prompt shown when a call is detected" width="380">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/prompt-dark.png">
+    <img src="docs/images/prompt.png" alt="The prompt shown when a call is detected" width="380">
+  </picture>
 </p>
 
 Each meeting gets its own folder with `transcript.md`, `notes.md` (Summary, Decisions, Action items, Open questions,
