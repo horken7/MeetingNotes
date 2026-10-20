@@ -2,6 +2,7 @@ import Foundation
 import AppKit
 import AVFoundation
 import CoreGraphics
+import UserNotifications
 
 // MARK: Settings
 
@@ -168,6 +169,7 @@ final class AppModel: ObservableObject {
     @Published var recording: ActiveRecording?
     @Published var starting = false
     @Published var banner: String?
+    var openMainWindow: (() -> Void)?   // set by the menu bar label, which has SwiftUI's openWindow
     @Published var now = Date()   // ticks every second while recording, for the menu bar clock
 
     private var recorder: Recorder?
@@ -180,6 +182,7 @@ final class AppModel: ObservableObject {
     private var names: [String: String?] = [:]   // meeting name per call app key, from its call tab
 
     func launch() {
+        Notifier.shared.setUp()
         markInterrupted()
         reload()
         if selection == nil { selection = meetings.first?.id }
@@ -286,6 +289,7 @@ final class AppModel: ObservableObject {
             }
             reload()
             await Pipeline.run(folder: active.folder) { [weak self] in self?.reload() }
+            notifyFinished(active.folder)
         }
     }
 
@@ -308,6 +312,25 @@ final class AppModel: ObservableObject {
         stop()
     }
 
+    /// Shows the call prompt with sample text (used for the README screenshots).
+    func showDemoPrompt() {
+        prompt.show(appName: "Google Chrome", meetingName: "Product roadmap Q1",
+                    onStart: { [weak self] in self?.prompt.hide() },
+                    onDismiss: { [weak self] in self?.prompt.hide() },
+                    onNever: { [weak self] in self?.prompt.hide() })
+    }
+
+    private func notifyFinished(_ folder: URL) {
+        guard let meta = Store.readMeta(folder) else { return }
+        if meta.status == "done" {
+            Notifier.shared.post(title: "Notes ready: \(meta.title)",
+                                 body: Notifier.summary(folder) ?? "Your meeting notes are ready.", folder: folder)
+        } else if meta.status == "failed" {
+            Notifier.shared.post(title: "Couldn't finish \(meta.title)",
+                                 body: meta.error ?? "Open Meeting Notes and press Retry.", folder: folder)
+        }
+    }
+
     // MARK: Meeting actions
 
     func retry(_ m: Meeting, notesOnly: Bool) {
@@ -318,6 +341,7 @@ final class AppModel: ObservableObject {
         reload()
         Task {
             await Pipeline.run(folder: m.folder, notesOnly: notesOnly) { [weak self] in self?.reload() }
+            notifyFinished(m.folder)
         }
     }
 
@@ -338,6 +362,7 @@ final class AppModel: ObservableObject {
 
     private func tick() {
         let d = UserDefaults.standard
+        guard d.string(forKey: "captureScreenshots") == nil else { return }   // keep the demo prompt up for screenshots
         let ignored = Set(d.stringArray(forKey: Keys.ignoredApps) ?? [])
         let users = MicMonitor.users().filter { !$0.isSystem && !ignored.contains($0.key) }
         let now = Date()
@@ -403,5 +428,56 @@ final class AppModel: ObservableObject {
                 }
             )
         }
+    }
+}
+
+// MARK: Notifications
+
+/// "Notes ready" notifications. Clicking one opens the window on that meeting.
+final class Notifier: NSObject, UNUserNotificationCenterDelegate {
+    static let shared = Notifier()
+
+    func setUp() {
+        let center = UNUserNotificationCenter.current()
+        center.delegate = self
+        center.requestAuthorization(options: [.alert, .sound]) { _, _ in }
+    }
+
+    func post(title: String, body: String, folder: URL) {
+        let content = UNMutableNotificationContent()
+        content.title = title
+        content.body = body
+        content.sound = .default
+        content.userInfo = ["folder": folder.path]
+        UNUserNotificationCenter.current().add(
+            UNNotificationRequest(identifier: folder.path, content: content, trigger: nil))
+    }
+
+    /// First paragraph of the notes (the summary), shortened for the notification.
+    static func summary(_ folder: URL) -> String? {
+        guard let text = try? String(contentsOf: folder.appendingPathComponent("notes.md"), encoding: .utf8) else { return nil }
+        let line = text.components(separatedBy: "\n")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .first { !$0.isEmpty && !$0.hasPrefix("#") }
+        guard var line else { return nil }
+        if line.hasPrefix("- ") || line.hasPrefix("* ") { line.removeFirst(2) }
+        return line.count > 180 ? String(line.prefix(179)) + "…" : line
+    }
+
+    func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification,
+                                withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
+        completionHandler([.banner, .sound])
+    }
+
+    func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
+                                withCompletionHandler completionHandler: @escaping () -> Void) {
+        let path = response.notification.request.content.userInfo["folder"] as? String
+        Task { @MainActor in
+            let model = AppModel.shared
+            model.reload()
+            if let path { model.selection = path }
+            model.openMainWindow?()
+        }
+        completionHandler()
     }
 }

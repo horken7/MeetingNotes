@@ -10,7 +10,19 @@ A small native macOS app that records your video calls, transcribes them **on yo
   using the microphone, a small prompt offers to take notes, and recording stops a few seconds after you leave the call.
 - **Names meetings for you.** In browsers it reads the call tab's title (e.g. "Meet – Weekly sync" becomes "Weekly sync").
 - **Private by default.** Audio never leaves your Mac. Only the text transcript is sent to Claude to write the notes.
+- **Runs in the background.** It starts at login without a window, lives in the menu bar, and sends a notification
+  when the notes for a meeting are ready.
 - **Swedish, Danish and English** (or automatic language detection). Notes are written in the meeting's language.
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/window-dark.png">
+    <img src="docs/images/window.png" alt="Meeting notes in the main window" width="800">
+  </picture>
+</p>
+<p align="center">
+  <img src="docs/images/prompt.png" alt="The prompt shown when a call is detected" width="380">
+</p>
 
 Each meeting gets its own folder with `transcript.md`, `notes.md` (Summary, Decisions, Action items, Open questions,
 Key points), the audio as 16 kHz WAV, and `meta.json`.
@@ -52,6 +64,9 @@ If Claude Code isn't logged in yet, run `claude` in Terminal once and log in.
 - Join a call. A "Meeting detected" prompt appears after a few seconds: **Start notes**, **Not now**, or
   **Never for this app**. You can also press **Start meeting** in the window or the menu bar.
 - The menu bar icon shows the state: waveform (idle), red dot (recording), hourglass (transcribing / writing notes).
+- When the notes are ready you get a notification; click it to open the meeting.
+- Closing the window keeps the app running in the menu bar (no Dock icon). Open it again from the menu bar or
+  by opening the app. It starts at login by default; turn that off in Settings.
 - Leave the call and recording stops on its own about 5 seconds later. Transcription takes roughly a minute per
   10 minutes of call, then Claude writes the notes.
 - In the window you can rename meetings, copy notes or the transcript, regenerate notes, redo the transcript,
@@ -85,6 +100,13 @@ bash install.sh       # builds and installs the app
 The tests are a small runner in `tests/main.swift` (no XCTest needed, so the command line tools are enough). They cover
 the transcript merge, noise filtering, meeting folders and metadata, call-app grouping, meeting title parsing and the
 Claude environment. CI runs the same script on GitHub Actions (`macos-15`).
+
+To refresh the README screenshots (uses the app's own Screen Recording permission):
+
+```bash
+open -a "Meeting Notes" --args -captureScreenshots "$PWD/docs/images" -outputDir /path/to/demo/meetings \
+    [-screenshotAppearance dark]
+```
 
 `docs/VERIFY.md` is the manual end-to-end checklist (permissions, recording, languages, auto-detection, robustness).
 

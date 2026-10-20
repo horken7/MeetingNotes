@@ -114,6 +114,18 @@ func testCallTitles() {
     expectEqual(CallInfo.cleanTitle("Zoom"), nil)
 }
 
+func testNotificationSummary() throws {
+    let dir = FileManager.default.temporaryDirectory.appendingPathComponent("mn-notes-\(UUID().uuidString)")
+    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: dir) }
+    expectEqual(Notifier.summary(dir), nil)
+    try "# Weekly\n\n## Summary\n\nWe agreed on the budget.\n\n## Decisions\n- Ship it\n"
+        .write(to: dir.appendingPathComponent("notes.md"), atomically: true, encoding: .utf8)
+    expectEqual(Notifier.summary(dir), "We agreed on the budget.")
+    try ("# T\n\n" + String(repeating: "a", count: 300)).write(to: dir.appendingPathComponent("notes.md"), atomically: true, encoding: .utf8)
+    expectEqual(Notifier.summary(dir)?.count, 180)
+}
+
 func testToolsEnvironment() {
     setenv("ANTHROPIC_API_KEY", "sk-test", 1)
     expect(Tools.environment["ANTHROPIC_API_KEY"] == nil, "API key must be removed so the subscription is used")
@@ -130,6 +142,7 @@ struct TestMain {
         testMicUser()
         do { try testStore() } catch { expect(false, "Store threw: \(error)") }
         testCallTitles()
+        do { try testNotificationSummary() } catch { expect(false, "notes summary threw: \(error)") }
         testToolsEnvironment()
         print("\(checks - failures)/\(checks) checks passed")
         exit(failures == 0 ? 0 : 1)

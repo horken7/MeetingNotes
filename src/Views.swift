@@ -170,6 +170,7 @@ struct MeetingDetail: View {
     @State private var notes = ""
     @State private var transcript = ""
     @State private var confirmTrash = false
+    @State private var copied = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -192,13 +193,31 @@ struct MeetingDetail: View {
 
             statusSection
 
-            Picker("", selection: $tab) {
-                Text("Notes").tag(0)
-                Text("Transcript").tag(1)
+            HStack {
+                Picker("", selection: $tab) {
+                    Text("Notes").tag(0)
+                    Text("Transcript").tag(1)
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .frame(width: 240)
+                Spacer()
+                let text = tab == 0 ? notes : transcript
+                Button {
+                    copy(text)
+                    copied = true
+                    Task {
+                        try? await Task.sleep(for: .seconds(1.5))
+                        copied = false
+                    }
+                } label: {
+                    Label(copied ? "Copied" : (tab == 0 ? "Copy notes" : "Copy transcript"),
+                          systemImage: copied ? "checkmark" : "doc.on.doc")
+                }
+                .disabled(text.isEmpty)
+                .keyboardShortcut("c", modifiers: [.command, .shift])
+                .help("Copy to the clipboard (⇧⌘C)")
             }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .frame(width: 240)
             .padding(.horizontal, 20)
             .padding(.bottom, 10)
 
@@ -402,7 +421,7 @@ struct SettingsView: View {
                     Toggle("Start recording without asking", isOn: $autoStart)
                         .disabled(!autoDetect)
                     Toggle("Stop automatically when the call ends", isOn: $autoStop)
-                    Toggle("Open Meeting Notes at login", isOn: $openAtLogin)
+                    Toggle("Start at login and run in the background", isOn: $openAtLogin)
                         .onChange(of: openAtLogin) { _, on in setLogin(on) }
                     ForEach(ignored, id: \.self) { key in
                         HStack {
