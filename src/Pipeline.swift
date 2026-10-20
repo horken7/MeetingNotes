@@ -1,0 +1,259 @@
+import Foundation
+
+// MARK: External tools
+
+enum Tools {
+    static let home = NSHomeDirectory()
+    static var dataDir: URL { URL(fileURLWithPath: home).appendingPathComponent(".meetnotes") }
+    static var model: URL { dataDir.appendingPathComponent("ggml-large-v3-turbo.bin") }
+    static var vadModel: URL { dataDir.appendingPathComponent("ggml-silero-v5.1.2.bin") }
+    static var modelInstalled: Bool { FileManager.default.fileExists(atPath: model.path) }
+
+    static func find(_ name: String, preferred: String? = nil) -> String? {
+        var candidates: [String] = []
+        if let p = preferred, !p.isEmpty { candidates.append(p) }
+        candidates += [
+            "/opt/homebrew/bin/\(name)",
+            "/usr/local/bin/\(name)",
+            "\(home)/.local/bin/\(name)",
+            "\(home)/.claude/local/\(name)",
+            "/usr/bin/\(name)",
+        ]
+        return candidates.first { FileManager.default.isExecutableFile(atPath: $0) }
+    }
+
+    static var whisper: String? { find("whisper-cli") }
+    static var claude: String? { find("claude", preferred: UserDefaults.standard.string(forKey: Keys.claudePath)) }
+
+    /// GUI apps don't get the shell PATH, so give child processes a sensible one.
+    static var environment: [String: String] {
+        var env = ProcessInfo.processInfo.environment
+        env.removeValue(forKey: "ANTHROPIC_API_KEY")   // always use the Claude subscription
+        env["HOME"] = home
+        env["PATH"] = "/opt/homebrew/bin:/usr/local/bin:\(home)/.local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+        return env
+    }
+}
+
+// MARK: Running processes
+
+struct RunResult {
+    let status: Int32
+    let out: String
+    let err: String
+}
+
+private final class DataBox: @unchecked Sendable {
+    var data = Data()
+}
+
+func runProcess(_ exe: String, _ args: [String], input: String? = nil, cwd: URL? = nil) async -> RunResult {
+    await withCheckedContinuation { (cont: CheckedContinuation<RunResult, Never>) in
+        DispatchQueue.global(qos: .userInitiated).async {
+            let p = Process()
+            p.executableURL = URL(fileURLWithPath: exe)
+            p.arguments = args
+            p.environment = Tools.environment
+            if let cwd { p.currentDirectoryURL = cwd }
+            let outPipe = Pipe()
+            let errPipe = Pipe()
+            let inPipe = Pipe()
+            p.standardOutput = outPipe
+            p.standardError = errPipe
+            p.standardInput = input == nil ? FileHandle.nullDevice : inPipe
+
+            do {
+                try p.run()
+            } catch {
+                cont.resume(returning: RunResult(status: -1, out: "", err: error.localizedDescription))
+                return
+            }
+            let outBox = DataBox()
+            let errBox = DataBox()
+            let group = DispatchGroup()
+            group.enter()
+            DispatchQueue.global().async {
+                outBox.data = outPipe.fileHandleForReading.readDataToEndOfFile()
+                group.leave()
+            }
+            group.enter()
+            DispatchQueue.global().async {
+                errBox.data = errPipe.fileHandleForReading.readDataToEndOfFile()
+                group.leave()
+            }
+            if let input {
+                let handle = inPipe.fileHandleForWriting
+                DispatchQueue.global().async {
+                    try? handle.write(contentsOf: Data(input.utf8))
+                    try? handle.close()
+                }
+            }
+            p.waitUntilExit()
+            group.wait()
+            cont.resume(returning: RunResult(
+                status: p.terminationStatus,
+                out: String(decoding: outBox.data, as: UTF8.self),
+                err: String(decoding: errBox.data, as: UTF8.self)
+            ))
+        }
+    }
+}
+
+// MARK: Transcribe + summarize
+
+struct PipelineError: LocalizedError {
+    let message: String
+    var errorDescription: String? { message }
+}
+
+enum Pipeline {
+    static func run(folder: URL, notesOnly: Bool = false, onChange: @escaping @MainActor () -> Void) async {
+        let settings = SettingsSnapshot.current()
+        let meta = Store.readMeta(folder) ?? Meta(title: folder.lastPathComponent)
+        let transcriptURL = folder.appendingPathComponent("transcript.md")
+        do {
+            var transcript = ""
+            if notesOnly, let existing = try? String(contentsOf: transcriptURL, encoding: .utf8) {
+                transcript = existing
+            } else {
+                Store.update(folder) { $0.status = "transcribing"; $0.error = nil }
+                await onChange()
+                let hasAudio = ["me", "others"].contains { t in
+                    ["caf", "wav"].contains { FileManager.default.fileExists(atPath: folder.appendingPathComponent("\(t).\($0)").path) }
+                }
+                guard hasAudio else {
+                    throw PipelineError(message: "The audio for this meeting wasn't kept, so the transcript can't be redone.")
+                }
+                let lang = meta.lang ?? settings.language
+                let me = try await transcribe(folder: folder, track: "me", offset: meta.offsets?["me"] ?? 0, lang: lang)
+                let others = try await transcribe(folder: folder, track: "others", offset: meta.offsets?["others"] ?? 0, lang: lang)
+                if me.isEmpty && others.isEmpty {
+                    throw PipelineError(message: "No speech was captured. Check Microphone and Screen & System Audio Recording permissions in Settings.")
+                }
+                transcript = merge(me: me, others: others, myName: settings.myName)
+                try "# \(meta.title): transcript\n\n\(transcript)\n".write(to: transcriptURL, atomically: true, encoding: .utf8)
+            }
+
+            Store.update(folder) { $0.status = "summarizing" }
+            await onChange()
+            let current = Store.readMeta(folder) ?? meta
+            let notes = try await summarize(transcript: transcript, meta: current, myName: settings.myName, folder: folder)
+            try "# \(current.title)\n\n\(notes)\n".write(to: folder.appendingPathComponent("notes.md"), atomically: true, encoding: .utf8)
+
+            if !settings.keepAudio {
+                for track in ["me", "others"] {
+                    try? FileManager.default.removeItem(at: folder.appendingPathComponent("\(track).wav"))
+                    try? FileManager.default.removeItem(at: folder.appendingPathComponent("\(track).caf"))
+                }
+            }
+            Store.update(folder) { $0.status = "done"; $0.error = nil }
+        } catch {
+            Store.update(folder) { $0.status = "failed"; $0.error = error.localizedDescription }
+        }
+        await onChange()
+    }
+
+    private static func transcribe(folder: URL, track: String, offset: Double, lang: String) async throws -> [(Double, String)] {
+        let fm = FileManager.default
+        let caf = folder.appendingPathComponent("\(track).caf")
+        let wav = folder.appendingPathComponent("\(track).wav")
+
+        // Convert the raw 48 kHz capture to the 16 kHz mono WAV whisper wants (also ~12x smaller).
+        if fm.fileExists(atPath: caf.path) {
+            let r = await runProcess("/usr/bin/afconvert", ["-f", "WAVE", "-d", "LEI16@16000", "-c", "1", caf.path, wav.path])
+            guard r.status == 0 else { throw PipelineError(message: "Audio conversion failed: \(r.err)") }
+            try? fm.removeItem(at: caf)
+        }
+        let size = (try? fm.attributesOfItem(atPath: wav.path)[.size] as? Int) ?? 0
+        guard size > 32_000 else { return [] }   // under a second of audio
+
+        guard let whisper = Tools.whisper else {
+            throw PipelineError(message: "whisper-cli wasn't found. Run the installer again.")
+        }
+        guard Tools.modelInstalled else {
+            throw PipelineError(message: "The speech model is missing. Run the installer again.")
+        }
+        let base = folder.appendingPathComponent(track)
+        let threads = min(8, ProcessInfo.processInfo.activeProcessorCount)
+        let args = ["-m", Tools.model.path, "-f", wav.path, "-l", lang, "-t", "\(threads)",
+                    "-oj", "-of", base.path, "-np"]
+        var r: RunResult
+        if fm.fileExists(atPath: Tools.vadModel.path) {
+            // Voice activity detection skips silence, which stops whisper inventing phrases.
+            r = await runProcess(whisper, args + ["--vad", "-vm", Tools.vadModel.path])
+            if r.status != 0 { r = await runProcess(whisper, args) }
+        } else {
+            r = await runProcess(whisper, args)
+        }
+        guard r.status == 0 else {
+            throw PipelineError(message: "Transcription failed: \(String(r.err.suffix(400)))")
+        }
+
+        let raw = try Data(contentsOf: base.appendingPathExtension("json"))
+        let clean = Data(String(decoding: raw, as: UTF8.self).utf8)   // whisper can emit broken UTF-8
+        guard let obj = try JSONSerialization.jsonObject(with: clean) as? [String: Any],
+              let items = obj["transcription"] as? [[String: Any]] else {
+            throw PipelineError(message: "Couldn't read the transcription output.")
+        }
+        var segments: [(Double, String)] = []
+        for item in items {
+            let text = ((item["text"] as? String) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !isNoise(text) else { continue }
+            let fromMs = ((item["offsets"] as? [String: Any])?["from"] as? NSNumber)?.doubleValue ?? 0
+            segments.append((fromMs / 1000 + offset, text))
+        }
+        return segments
+    }
+
+    static func isNoise(_ t: String) -> Bool {
+        if t.isEmpty { return true }
+        if (t.hasPrefix("[") && t.hasSuffix("]")) || (t.hasPrefix("(") && t.hasSuffix(")"))
+            || (t.hasPrefix("*") && t.hasSuffix("*")) { return true }
+        let filler = CharacterSet.punctuationCharacters.union(.whitespaces).union(.symbols)
+        return t.unicodeScalars.allSatisfy { filler.contains($0) }
+    }
+
+    static func merge(me: [(Double, String)], others: [(Double, String)], myName: String) -> String {
+        let rows = (me.map { ($0.0, myName, $0.1) } + others.map { ($0.0, "Others", $0.1) })
+            .sorted { $0.0 < $1.0 }
+        var lines: [String] = []
+        var last = ""
+        for (t, who, text) in rows {
+            if who == last, !lines.isEmpty {
+                lines[lines.count - 1] += " " + text
+            } else {
+                lines.append("[\(formatDuration(t))] **\(who):** \(text)")
+                last = who
+            }
+        }
+        return lines.joined(separator: "\n\n")
+    }
+
+    private static func summarize(transcript: String, meta: Meta, myName: String, folder: URL) async throws -> String {
+        guard let claude = Tools.claude else {
+            throw PipelineError(message: "Claude Code wasn't found. Run the installer again.")
+        }
+        let prompt = """
+        You are writing meeting notes for \(myName). In the transcript, lines marked "\(myName)" are \(myName) and lines marked "Others" are the other people on the call (possibly several people).
+        The transcript comes from automatic speech recognition and contains errors; fix obvious mistakes from context.
+        Meeting title: \(meta.title)\(meta.app.map { "\nCall app: \($0)" } ?? "")
+
+        Write the notes in the main language spoken in the meeting (translate the section headings too), as Markdown with these sections:
+        ## Summary (3 to 5 sentences)
+        ## Decisions
+        ## Action items (who, what, deadline if mentioned)
+        ## Open questions
+        ## Key points (grouped by topic)
+
+        Be concise and concrete. Only include what the transcript supports; leave out a section if it would be empty.
+        Use headings and bullet lists only, no tables. Never use en dashes or em dashes. Output only the notes.
+        """
+        let r = await runProcess(claude, ["-p", prompt], input: transcript, cwd: folder)
+        let out = r.out.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard r.status == 0, !out.isEmpty else {
+            let detail = (r.err.isEmpty ? r.out : r.err).trimmingCharacters(in: .whitespacesAndNewlines)
+            throw PipelineError(message: "Claude couldn't write the notes. \(detail.isEmpty ? "If you haven't yet, run `claude` in Terminal once and log in." : String(detail.suffix(400)))")
+        }
+        return out
+    }
+}
