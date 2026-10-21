@@ -84,3 +84,11 @@ Output per meeting: `<repo>/Meetings/<yyyy-MM-dd HHmm> <title>/` (changeable in 
 ## Report back
 
 A short list: what passed, what you fixed (file + one line each), and anything still broken or untestable.
+
+### Provider selection (Claude and Codex)
+- Install with `bash install.sh --provider codex`; confirm Claude is not required. Repeat with `--provider claude`.
+- Settings > Notes: switch providers, close/reopen Settings, confirm the selection persists.
+- Check the selected CLI installation status and optional custom executable path.
+- Use a synthetic transcript to regenerate notes with each authenticated CLI. Confirm Markdown output and provider-specific errors when logged out.
+- Codex uses existing CLI authentication; verify the intended ChatGPT/API account before a live run.
+- Verify Settings scrolls to every section at the standard window size.

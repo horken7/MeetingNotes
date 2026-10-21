@@ -1,7 +1,7 @@
 #!/bin/bash
 # Meeting Notes installer
 # Builds and installs a Mac app that records calls, transcribes them on your Mac
-# with whisper.cpp and writes notes with Claude Code (your Claude subscription).
+# with whisper.cpp and writes notes with Claude Code or Codex (OpenAI).
 # Run from the MeetingNotes folder:  bash install.sh
 
 set -euo pipefail
@@ -20,6 +20,14 @@ export PATH="/opt/homebrew/bin:/usr/local/bin:$HOME/.local/bin:$PATH"
 step() { printf '\n\033[1;32m==>\033[0m \033[1m%s\033[0m\n' "$*"; }
 note() { printf '    %s\n' "$*"; }
 fail() { printf '\n\033[1;31mError:\033[0m %s\n' "$*" >&2; exit 1; }
+
+# Preserve the selected provider on reinstall; Claude remains the default.
+PROVIDER="$(defaults read "$BUNDLE_ID" notesProvider 2>/dev/null || echo claude)"
+if [[ $# -gt 0 ]]; then
+  [[ $# -eq 2 && "$1" == "--provider" ]] || fail "Usage: bash install.sh [--provider claude|codex]"
+  PROVIDER="$2"
+fi
+[[ "$PROVIDER" == "claude" || "$PROVIDER" == "codex" ]] || fail "Provider must be claude or codex."
 
 # ---------------------------------------------------------------------------
 step "Checking your Mac"
@@ -41,22 +49,33 @@ fi
 command -v whisper-cli >/dev/null || fail "whisper-cli was not found after installing whisper-cpp."
 
 # ---------------------------------------------------------------------------
-step "Claude Code (writes the notes with your Claude subscription)"
-CLAUDE="$(command -v claude || true)"
-if [[ -z "$CLAUDE" ]]; then
-  note "Installing Claude Code..."
-  curl -fsSL https://claude.ai/install.sh | bash
-  CLAUDE="$HOME/.local/bin/claude"
+step "Notes provider: $PROVIDER"
+PROVIDER_EXE="$(command -v "$PROVIDER" || true)"
+if [[ -z "$PROVIDER_EXE" ]]; then
+  if [[ "$PROVIDER" == "claude" ]]; then
+    curl -fsSL https://claude.ai/install.sh | bash
+    PROVIDER_EXE="$HOME/.local/bin/claude"
+  else
+    brew install --cask codex
+    PROVIDER_EXE="$(command -v codex || true)"
+  fi
 fi
-[[ -x "$CLAUDE" ]] || fail "Claude Code could not be installed. See https://claude.com/claude-code"
-note "Using $CLAUDE"
-note "Checking that Claude Code is logged in (one tiny request)..."
-if env -u ANTHROPIC_API_KEY "$CLAUDE" -p "Reply with just the word OK" </dev/null >/dev/null 2>&1; then
-  note "Logged in."
-  CLAUDE_OK=1
+[[ -x "$PROVIDER_EXE" ]] || fail "$PROVIDER could not be installed."
+"$PROVIDER_EXE" --version >/dev/null 2>&1 || fail "$PROVIDER is installed but cannot run. Repair its installation and retry."
+note "Using $PROVIDER_EXE"
+if [[ "$PROVIDER" == "claude" ]]; then
+  note "Checking Claude login (one tiny request)..."
+  if env -u ANTHROPIC_API_KEY "$PROVIDER_EXE" -p "Reply with just the word OK" </dev/null >/dev/null 2>&1; then
+    PROVIDER_OK=1
+  else
+    PROVIDER_OK=0
+  fi
 else
-  CLAUDE_OK=0
-  note "Not logged in yet. After installing, open Terminal, run: claude   and log in with your Claude account."
+  if "$PROVIDER_EXE" login status >/dev/null 2>&1; then
+    PROVIDER_OK=1
+  else
+    PROVIDER_OK=0
+  fi
 fi
 
 # ---------------------------------------------------------------------------
@@ -88,7 +107,7 @@ ARCH="$(uname -m)"
 xcrun --sdk macosx swiftc -O -parse-as-library -swift-version 5 \
   -target "$ARCH-apple-macos15.0" \
   -o "$BUILD/$EXEC" "$SRC"/*.swift \
-  || fail "The build failed. Copy the errors above and send them to Claude."
+  || fail "The build failed. See the compiler errors above."
 
 APP="$BUILD/$APP_NAME.app"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
@@ -145,7 +164,8 @@ pkill -x "$EXEC" 2>/dev/null || true
 sleep 1
 rm -rf "$DEST/$APP_NAME.app"
 cp -R "$APP" "$DEST/"
-defaults write "$BUNDLE_ID" claudePath "$CLAUDE"
+defaults write "$BUNDLE_ID" "${PROVIDER}Path" "$PROVIDER_EXE"
+defaults write "$BUNDLE_ID" notesProvider "$PROVIDER"
 # Save meetings next to the app's source in a Meetings folder, unless another folder was chosen in Settings.
 if ! defaults read "$BUNDLE_ID" outputDir >/dev/null 2>&1; then
   defaults write "$BUNDLE_ID" outputDir "$HERE/Meetings"
@@ -171,6 +191,6 @@ cat <<'MSG'
     "Start meeting" in the window or the menu bar icon.
     Notes are saved in the Meetings folder next to install.sh.
 MSG
-if [[ "$CLAUDE_OK" == "0" ]]; then
-  printf '\n    \033[1mStill to do:\033[0m run  claude  in Terminal once and log in, otherwise notes cannot be written.\n'
+if [[ "$PROVIDER_OK" == "0" ]]; then
+  note "Still to do: run $PROVIDER in Terminal and log in before generating notes."
 fi

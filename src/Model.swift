@@ -16,6 +16,8 @@ enum Keys {
     static let outputDir = "outputDir"
     static let ignoredApps = "ignoredApps"
     static let claudePath = "claudePath"
+    static let codexPath = "codexPath"
+    static let notesProvider = "notesProvider"
 }
 
 func registerDefaults() {
@@ -27,6 +29,7 @@ func registerDefaults() {
     }
     let first = NSFullUserName().split(separator: " ").first.map(String.init) ?? "Me"
     UserDefaults.standard.register(defaults: [
+        Keys.notesProvider: NotesProvider.claude.rawValue,
         Keys.myName: first,
         Keys.language: "auto",
         Keys.autoDetect: true,
@@ -42,13 +45,15 @@ struct SettingsSnapshot {
     let myName: String
     let language: String
     let keepAudio: Bool
+    let notesProvider: NotesProvider
 
     static func current() -> SettingsSnapshot {
         let d = UserDefaults.standard
         return SettingsSnapshot(
             myName: d.string(forKey: Keys.myName) ?? "Me",
             language: d.string(forKey: Keys.language) ?? "auto",
-            keepAudio: d.bool(forKey: Keys.keepAudio)
+            keepAudio: d.bool(forKey: Keys.keepAudio),
+            notesProvider: NotesProvider(rawValue: d.string(forKey: Keys.notesProvider) ?? "") ?? .claude
         )
     }
 }

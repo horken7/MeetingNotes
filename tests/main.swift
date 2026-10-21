@@ -132,9 +132,71 @@ func testToolsEnvironment() {
     expect(Tools.environment["PATH"]?.contains("/opt/homebrew/bin") == true, "PATH includes Homebrew")
 }
 
+// Exercise the actual subprocess boundary without accounts or meeting data.
+func testNotesProviders() async throws {
+    let fm = FileManager.default
+    let dir = fm.temporaryDirectory.appendingPathComponent("mn-provider-tests-\(UUID().uuidString)")
+    try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+    let defaults = UserDefaults.standard
+    let keys = [Keys.claudePath, Keys.codexPath, Keys.notesProvider]
+    let saved = keys.map { defaults.object(forKey: $0) }
+    defer {
+        try? fm.removeItem(at: dir)
+        for (key, value) in zip(keys, saved) {
+            if let value { defaults.set(value, forKey: key) } else { defaults.removeObject(forKey: key) }
+        }
+    }
+    defaults.set("unknown", forKey: Keys.notesProvider)
+    expectEqual(SettingsSnapshot.current().notesProvider, .claude)
+    defaults.set("codex", forKey: Keys.notesProvider)
+    expectEqual(SettingsSnapshot.current().notesProvider, .codex)
+
+    let fake = dir.appendingPathComponent("fake-cli")
+    let script = """
+    #!/bin/sh
+    case "$1" in
+      -p)
+        case "$2" in *"Meeting title: Synthetic sync"*) ;; *) exit 21 ;; esac
+        [ "$(cat)" = "Synthetic transcript" ] || exit 22
+        [ -z "$ANTHROPIC_API_KEY" ] || exit 23
+        ;;
+      --ask-for-approval)
+        [ "$*" = "--ask-for-approval never exec --skip-git-repo-check --sandbox read-only --ephemeral -" ] || exit 24
+        input="$(cat)"
+        case "$input" in *"Meeting title: Synthetic sync"*"<transcript>"*"Synthetic transcript"*"</transcript>"*) ;; *) exit 25 ;; esac
+        case "$PWD" in *meetingnotes-codex-*) ;; *) exit 26 ;; esac
+        ;;
+      *) exit 27 ;;
+    esac
+    echo 'progress on stderr' >&2
+    printf '  ## Summary\\nSynthetic notes\\n'
+    """
+    try script.write(to: fake, atomically: true, encoding: .utf8)
+    try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fake.path)
+    defaults.set(fake.path, forKey: Keys.claudePath)
+    defaults.set(fake.path, forKey: Keys.codexPath)
+    for provider in NotesProvider.allCases {
+        let notes = try await Pipeline.summarize(transcript: "Synthetic transcript",
+            meta: Meta(title: "Synthetic sync"), myName: "Test", folder: dir, provider: provider)
+        expectEqual(notes, "## Summary\nSynthetic notes")
+    }
+    for (script, detail) in [("#!/bin/sh\ncat >/dev/null\necho login-required >&2\nexit 1\n", "login-required"),
+                             ("#!/bin/sh\ncat >/dev/null\n", "codex login")] {
+        try script.write(to: fake, atomically: true, encoding: .utf8)
+        do {
+            _ = try await Pipeline.summarize(transcript: "Synthetic transcript",
+                meta: Meta(title: "Synthetic sync"), myName: "Test", folder: dir, provider: .codex)
+            expect(false, "Failed/empty output must throw")
+        } catch {
+            expect(error.localizedDescription.contains("Codex (OpenAI)"), "Error identifies provider")
+            expect(error.localizedDescription.contains(detail), "Error includes diagnostic or login hint")
+        }
+    }
+}
+
 @main
 struct TestMain {
-    static func main() {
+    static func main() async {
         registerDefaults()
         testFormatDuration()
         testIsNoise()
@@ -144,6 +206,7 @@ struct TestMain {
         testCallTitles()
         do { try testNotificationSummary() } catch { expect(false, "notes summary threw: \(error)") }
         testToolsEnvironment()
+        do { try await testNotesProviders() } catch { expect(false, "providers threw: \(error)") }
         print("\(checks - failures)/\(checks) checks passed")
         exit(failures == 0 ? 0 : 1)
     }
