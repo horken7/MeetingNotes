@@ -299,7 +299,7 @@ struct MeetingDetail: View {
             StatusBox {
                 HStack(spacing: 10) {
                     ProgressView().controlSize(.small)
-                    Text("Claude is writing the notes…")
+                    Text("Writing the notes…")
                 }
             }
         case "failed":
@@ -401,6 +401,11 @@ struct SettingsView: View {
     @AppStorage(Keys.autoStop) private var autoStop = true
     @AppStorage(Keys.keepAudio) private var keepAudio = true
     @AppStorage(Keys.outputDir) private var outputDir = ""
+    @AppStorage(Keys.notesProvider) private var notesProvider = NotesProvider.claude.rawValue
+    @AppStorage(Keys.claudePath) private var claudePath = ""
+    @AppStorage(Keys.codexPath) private var codexPath = ""
+
+    private var provider: NotesProvider { NotesProvider(rawValue: notesProvider) ?? .claude }
 
     @State private var ignored: [String] = UserDefaults.standard.stringArray(forKey: Keys.ignoredApps) ?? []
     @State private var openAtLogin = SMAppService.mainApp.status == .enabled
@@ -416,6 +421,21 @@ struct SettingsView: View {
                         Text("Dansk").tag("da")
                         Text("English").tag("en")
                     }
+                }
+                Section("Notes") {
+                    Picker("Write notes with", selection: $notesProvider) {
+                        ForEach(NotesProvider.allCases, id: \.rawValue) { option in
+                            Text(option.label).tag(option.rawValue)
+                        }
+                    }
+                    if provider == .claude {
+                        TextField("Claude executable (optional)", text: $claudePath)
+                    } else {
+                        TextField("Codex executable (optional)", text: $codexPath)
+                    }
+                    Text(provider.loginHint).font(.caption).foregroundStyle(.secondary)
+                    Text("The text transcript is sent to the selected provider. Audio stays on your Mac.")
+                        .font(.caption).foregroundStyle(.secondary)
                 }
                 Section("Automatic") {
                     Toggle("Detect calls when an app starts using the microphone", isOn: $autoDetect)
@@ -447,7 +467,7 @@ struct SettingsView: View {
                 Section("Setup") {
                     check("Whisper (transcription on your Mac)", Tools.whisper != nil)
                     check("Speech model", Tools.modelInstalled)
-                    check("Claude Code (writes the notes)", Tools.claude != nil)
+                    check("\(provider.label) installed", provider.executable != nil)
                     HStack {
                         Button("Microphone permission…") { openPrivacy("Privacy_Microphone") }
                         Button("Screen & System Audio permission…") { openPrivacy("Privacy_ScreenCapture") }

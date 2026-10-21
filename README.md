@@ -2,14 +2,14 @@
 
 A small native macOS app that records your video calls, transcribes them **on your Mac** with
 [whisper.cpp](https://github.com/ggml-org/whisper.cpp), and writes structured meeting notes with
-[Claude Code](https://claude.com/claude-code) using your Claude subscription.
+[Claude Code](https://claude.com/claude-code) or [Codex (OpenAI)](https://developers.openai.com/codex/cli/).
 
 - **Two tracks, no virtual audio driver.** Your microphone and the call audio are captured separately with
   ScreenCaptureKit, so the transcript knows who said what (your name vs "Others").
 - **Detects calls automatically.** When an app such as Google Meet (in any browser), Zoom, Teams or FaceTime starts
   using the microphone, a small prompt offers to take notes, and recording stops a few seconds after you leave the call.
 - **Names meetings for you.** In browsers it reads the call tab's title (e.g. "Meet – Weekly sync" becomes "Weekly sync").
-- **Private by default.** Audio never leaves your Mac. Only the text transcript is sent to Claude to write the notes.
+- **Private by default.** Audio never leaves your Mac. Only the text transcript is sent to your selected provider to write the notes.
 - **Runs in the background.** It starts at login without a window, lives in the menu bar, and sends a notification
   when the notes for a meeting are ready.
 - **Swedish, Danish and English** (or automatic language detection). Notes are written in the meeting's language.
@@ -35,7 +35,8 @@ Key points), the audio as 16 kHz WAV, and `meta.json`.
 - macOS 15 (Sequoia) or newer, Apple silicon or Intel
 - Xcode command line tools (`xcode-select --install`)
 - [Homebrew](https://brew.sh)
-- A Claude account for Claude Code (the installer installs Claude Code if it's missing)
+- A Claude account for Claude Code, or a Codex login (ChatGPT or API authentication)
+  for OpenAI. The installer installs the selected CLI if missing.
 - About 2 GB of disk space for the speech model
 
 ## Install
@@ -43,12 +44,13 @@ Key points), the audio as 16 kHz WAV, and `meta.json`.
 ```bash
 git clone https://github.com/horken7/MeetingNotes.git
 cd MeetingNotes
-bash install.sh
+bash install.sh                       # Claude by default
+# or: bash install.sh --provider codex
 ```
 
 The installer:
 
-1. installs `whisper-cpp` with Homebrew and Claude Code if needed,
+1. installs `whisper-cpp` with Homebrew and the selected notes CLI if needed,
 2. downloads the Whisper `large-v3-turbo` model (about 1.6 GB) and the Silero voice activity model to `~/.meetnotes/`,
 3. compiles the app with `swiftc`, signs it ad hoc and installs it to `/Applications/Meeting Notes.app`,
 4. opens it.
@@ -58,7 +60,11 @@ people on the call; no video is saved). macOS may ask you to quit and reopen the
 detected in a browser, macOS also asks to let Meeting Notes read the browser's tabs, which is used only for the
 meeting name.
 
-If Claude Code isn't logged in yet, run `claude` in Terminal once and log in.
+Log in once in Terminal: `claude` for Claude Code or `codex login` for Codex.
+Choose **Settings > Notes > Write notes with** to switch providers, including when regenerating notes.
+Install the other CLI before switching (or rerun `bash install.sh --provider claude|codex` with one provider).
+For a custom or npm installation, set the executable's absolute path in Settings. Reinstalling without
+`--provider` preserves your selected provider.
 
 > Each build is signed ad hoc, so macOS asks for the permissions again after every reinstall.
 
@@ -73,7 +79,7 @@ If Claude Code isn't logged in yet, run `claude` in Terminal once and log in.
 - Closing the window keeps the app running in the menu bar (no Dock icon). Open it again from the menu bar or
   by opening the app. It starts at login by default; turn that off in Settings.
 - Leave the call and recording stops on its own about 5 seconds later. Transcription takes roughly a minute per
-  10 minutes of call, then Claude writes the notes.
+  10 minutes of call, then your selected provider writes the notes.
 - In the window you can rename meetings, copy notes or the transcript, regenerate notes, redo the transcript,
   show the folder in Finder, or move a meeting to the Trash (right-click or ⌘⌫).
 
@@ -89,11 +95,14 @@ automatic start/stop, open at login and whether audio is kept in **Settings**.
 | `src/Recorder.swift` | ScreenCaptureKit capture of mic and system audio into two `.caf` files |
 | `src/MicMonitor.swift` | Which apps are using the microphone or playing sound (Core Audio process objects) |
 | `src/CallInfo.swift` | Meeting name from the browser's call tab |
-| `src/Pipeline.swift` | `afconvert` to 16 kHz WAV, `whisper-cli` transcription, transcript merge, notes via `claude -p` |
+| `src/Pipeline.swift` | `afconvert` to 16 kHz WAV, `whisper-cli` transcription, transcript merge, notes via `claude -p` or `codex exec` |
 | `src/Views.swift` | SwiftUI views, Markdown rendering, settings, the meeting prompt |
 
 Claude Code is run with `ANTHROPIC_API_KEY` removed from its environment, so it always uses your Claude
-subscription rather than API billing.
+subscription rather than API billing. Codex uses its existing CLI authentication and default model;
+API-authenticated Codex usage may incur API charges. It runs non-interactively with a read-only sandbox
+in a temporary directory, receives the prompt and transcript through stdin, and returns notes on stdout.
+See [Codex non-interactive mode](https://developers.openai.com/codex/noninteractive).
 
 ## Development
 
@@ -104,7 +113,7 @@ bash install.sh       # builds and installs the app
 
 The tests are a small runner in `tests/main.swift` (no XCTest needed, so the command line tools are enough). They cover
 the transcript merge, noise filtering, meeting folders and metadata, call-app grouping, meeting title parsing and the
-Claude environment. CI runs the same script on GitHub Actions (`macos-15`).
+provider routing, CLI failures and the Claude environment. CI runs the same script on GitHub Actions (`macos-15`).
 
 To refresh the README screenshots (uses the app's own Screen Recording permission):
 
