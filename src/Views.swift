@@ -372,9 +372,11 @@ struct MarkdownView: View {
         } else if line.hasPrefix("# ") {
             Text(inline(String(line.dropFirst(2)))).font(.title2.weight(.bold)).padding(.top, 12)
         } else if line.hasPrefix("- ") || line.hasPrefix("* ") {
+            let item = String(line.dropFirst(2))
+            let task = item.hasPrefix("[ ] ") ? "☐" : (item.lowercased().hasPrefix("[x] ") ? "☑" : nil)   // task lists
             HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text("•").foregroundStyle(.secondary)
-                Text(inline(String(line.dropFirst(2))))
+                Text(task ?? "•").foregroundStyle(.secondary)
+                Text(inline(task == nil ? item : String(item.dropFirst(4))))
             }
             .padding(.leading, indent)
         } else {
@@ -404,6 +406,7 @@ struct SettingsView: View {
     @AppStorage(Keys.notesProvider) private var notesProvider = NotesProvider.claude.rawValue
     @AppStorage(Keys.claudePath) private var claudePath = ""
     @AppStorage(Keys.codexPath) private var codexPath = ""
+    @AppStorage(Keys.notesInstructions) private var instructions = Pipeline.defaultInstructions
 
     private var provider: NotesProvider { NotesProvider(rawValue: notesProvider) ?? .claude }
 
@@ -436,6 +439,20 @@ struct SettingsView: View {
                     Text(provider.loginHint).font(.caption).foregroundStyle(.secondary)
                     Text("The text transcript is sent to the selected provider. Audio stays on your Mac.")
                         .font(.caption).foregroundStyle(.secondary)
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("How the notes should look")
+                        TextEditor(text: $instructions)
+                            .font(.system(.callout, design: .monospaced))
+                            .frame(height: 170)
+                            .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.secondary.opacity(0.3)))
+                        HStack(alignment: .top) {
+                            Text("Sections, length, style or language. Your name, who is who and the meeting title are added automatically. Headings, bullets and bold are shown nicely; tables aren't. Use Regenerate notes to apply changes to an existing meeting.")
+                                .font(.caption).foregroundStyle(.secondary)
+                            Spacer()
+                            Button("Reset to default") { instructions = Pipeline.defaultInstructions }
+                                .disabled(instructions == Pipeline.defaultInstructions)
+                        }
+                    }
                 }
                 Section("Automatic") {
                     Toggle("Detect calls when an app starts using the microphone", isOn: $autoDetect)
@@ -483,7 +500,7 @@ struct SettingsView: View {
             }
             .padding()
         }
-        .frame(width: 540, height: 620)
+        .frame(width: 560, height: 720)
         .onChange(of: outputDir) { _, _ in model.reload() }
     }
 

@@ -246,24 +246,39 @@ enum Pipeline {
         return lines.joined(separator: "\n\n")
     }
 
+    /// The default "how the notes should look" instructions, editable in Settings.
+    static let defaultInstructions = """
+    Write the notes in the main language spoken in the meeting (translate the section headings too), as Markdown with these sections:
+    ## Summary (3 to 5 sentences)
+    ## Decisions
+    ## Action items (who, what, deadline if mentioned)
+    ## Open questions
+    ## Key points (grouped by topic)
+
+    Be concise and concrete. Only include what the transcript supports; leave out a section if it would be empty.
+    Use headings and bullet lists only, no tables. Never use en dashes or em dashes.
+    """
+
+    /// The user's instructions from Settings, or the default when they're empty.
+    static var notesInstructions: String {
+        let custom = (UserDefaults.standard.string(forKey: Keys.notesInstructions) ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return custom.isEmpty ? defaultInstructions : custom
+    }
+
     static func summarize(transcript: String, meta: Meta, myName: String, folder: URL, provider: NotesProvider) async throws -> String {
         guard let executable = provider.executable else {
             throw PipelineError(message: "\(provider.label) wasn't found. Run `bash install.sh --provider \(provider.rawValue)` or set its path in Settings.")
         }
+        // The context (who is who, title) is fixed; how the notes look is editable in Settings.
         let prompt = """
         You are writing meeting notes for \(myName). In the transcript, lines marked "\(myName)" are \(myName) and lines marked "Others" are the other people on the call (possibly several people).
         The transcript comes from automatic speech recognition and contains errors; fix obvious mistakes from context.
         Meeting title: \(meta.title)\(meta.app.map { "\nCall app: \($0)" } ?? "")
 
-        Write the notes in the main language spoken in the meeting (translate the section headings too), as Markdown with these sections:
-        ## Summary (3 to 5 sentences)
-        ## Decisions
-        ## Action items (who, what, deadline if mentioned)
-        ## Open questions
-        ## Key points (grouped by topic)
+        \(notesInstructions)
 
-        Be concise and concrete. Only include what the transcript supports; leave out a section if it would be empty.
-        Use headings and bullet lists only, no tables. Never use en dashes or em dashes. Output only the notes.
+        Output only the notes.
         """
         let r: RunResult
         switch provider {

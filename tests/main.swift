@@ -194,6 +194,39 @@ func testNotesProviders() async throws {
     }
 }
 
+// The editable instructions are part of the prompt; empty falls back to the default.
+func testNotesInstructions() async throws {
+    let fm = FileManager.default
+    let dir = fm.temporaryDirectory.appendingPathComponent("mn-instructions-\(UUID().uuidString)")
+    try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+    let d = UserDefaults.standard
+    let keys = [Keys.claudePath, Keys.notesInstructions]
+    let saved = keys.map { d.object(forKey: $0) }
+    defer {
+        try? fm.removeItem(at: dir)
+        for (key, value) in zip(keys, saved) {
+            if let value { d.set(value, forKey: key) } else { d.removeObject(forKey: key) }
+        }
+    }
+    let echo = dir.appendingPathComponent("echo-prompt")   // prints the -p prompt back as the "notes"
+    try "#!/bin/sh\ncat >/dev/null\nprintf '%s' \"$2\"\n".write(to: echo, atomically: true, encoding: .utf8)
+    try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: echo.path)
+    d.set(echo.path, forKey: Keys.claudePath)
+
+    func prompt() async throws -> String {
+        try await Pipeline.summarize(transcript: "x", meta: Meta(title: "Sync"), myName: "Ana", folder: dir, provider: .claude)
+    }
+    d.set("Only list action items as a checklist.", forKey: Keys.notesInstructions)
+    var p = try await prompt()
+    expect(p.contains("Only list action items as a checklist."), "custom instructions are used")
+    expect(!p.contains("## Key points"), "default sections are replaced")
+    expect(p.contains("lines marked \"Ana\" are Ana") && p.contains("Meeting title: Sync"), "context is always included")
+    expect(p.hasSuffix("Output only the notes."), "output rule is always last")
+    d.set("  \n ", forKey: Keys.notesInstructions)
+    p = try await prompt()
+    expect(p.contains("## Key points (grouped by topic)"), "empty instructions fall back to the default")
+}
+
 @main
 struct TestMain {
     static func main() async {
@@ -207,6 +240,7 @@ struct TestMain {
         do { try testNotificationSummary() } catch { expect(false, "notes summary threw: \(error)") }
         testToolsEnvironment()
         do { try await testNotesProviders() } catch { expect(false, "providers threw: \(error)") }
+        do { try await testNotesInstructions() } catch { expect(false, "instructions threw: \(error)") }
         print("\(checks - failures)/\(checks) checks passed")
         exit(failures == 0 ? 0 : 1)
     }

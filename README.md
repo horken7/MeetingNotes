@@ -83,6 +83,10 @@ For a custom or npm installation, set the executable's absolute path in Settings
 - In the window you can rename meetings, copy notes or the transcript, regenerate notes, redo the transcript,
   show the folder in Finder, or move a meeting to the Trash (right-click or ⌘⌫).
 
+To change how the notes look (sections, length, style, language), edit **Settings > Notes > How the notes should
+look**. Your name, who is who and the meeting title are always added; **Reset to default** restores the standard
+format, and **Regenerate notes** applies a new format to an existing meeting.
+
 Meetings are saved in `Meetings/` inside this folder (ignored by git). Change the folder, your name, language,
 automatic start/stop, open at login and whether audio is kept in **Settings**.
 

@@ -18,6 +18,7 @@ enum Keys {
     static let claudePath = "claudePath"
     static let codexPath = "codexPath"
     static let notesProvider = "notesProvider"
+    static let notesInstructions = "notesInstructions"
 }
 
 func registerDefaults() {
