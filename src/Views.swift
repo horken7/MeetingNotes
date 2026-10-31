@@ -500,6 +500,7 @@ struct SettingsView: View {
                         Button("Screen & System Audio permission…") { openPrivacy("Privacy_ScreenCapture") }
                     }
                     NotificationRow()
+                    MCPRow()
                 }
             }
             .formStyle(.grouped)
@@ -545,6 +546,36 @@ struct SettingsView: View {
     private func openPrivacy(_ anchor: String) {
         if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?\(anchor)") {
             NSWorkspace.shared.open(url)
+        }
+    }
+}
+
+/// The command that connects Claude Code to the read-only MCP server, with a copy button.
+struct MCPRow: View {
+    @State private var copied = false
+    private var command: String { "claude mcp add meeting-notes -- ~/.meetnotes/bin/meetingnotes-mcp" }
+
+    var body: some View {
+        let installed = FileManager.default.isExecutableFile(atPath: Tools.mcpServer.path)
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Image(systemName: installed ? "checkmark.circle.fill" : "xmark.circle.fill")
+                    .foregroundStyle(installed ? Color.green : Color.red)
+                Text("Ask Claude about your meetings (MCP server)")
+                Spacer()
+                Button(copied ? "Copied" : "Copy command") {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(command, forType: .string)
+                    copied = true
+                }
+                .disabled(!installed)
+            }
+            Text(installed ? "Run this once in Terminal, then ask Claude Code about your meetings. It can read notes and transcripts, never audio, and can't change anything. See the README for Claude Desktop."
+                           : "Run bash install.sh again to install the MCP server.")
+                .font(.caption).foregroundStyle(.secondary)
+            if installed {
+                Text(command).font(.system(.caption, design: .monospaced)).textSelection(.enabled)
+            }
         }
     }
 }

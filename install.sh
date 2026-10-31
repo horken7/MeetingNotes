@@ -111,6 +111,12 @@ xcrun --sdk macosx swiftc -O -parse-as-library -swift-version 5 \
   -o "$BUILD/$EXEC" "$SRC"/*.swift \
   || fail "The build failed. See the compiler errors above."
 
+# MCP server so Claude and other MCP clients can read your meetings (see the README).
+mkdir -p "$DATA/bin"
+xcrun --sdk macosx swiftc -O -swift-version 5 -target "$ARCH-apple-macos15.0" \
+  -o "$DATA/bin/meetingnotes-mcp" "$HERE/mcp/main.swift" \
+  || fail "The MCP server build failed. See the compiler errors above."
+
 APP="$BUILD/$APP_NAME.app"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 mv "$BUILD/$EXEC" "$APP/Contents/MacOS/$EXEC"
