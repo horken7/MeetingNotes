@@ -66,16 +66,45 @@ Install the other CLI before switching (or rerun `bash install.sh --provider cla
 For a custom or npm installation, set the executable's absolute path in Settings. Reinstalling without
 `--provider` preserves your selected provider.
 
-> Each build is signed ad hoc, so macOS asks for the permissions again after every reinstall.
+> Each build is signed ad hoc, so macOS asks for the permissions again after every reinstall, and it refuses
+> notification permission. To fix both, sign with a certificate (below).
+
+### Signing with a certificate (optional)
+
+Pass a code-signing identity from your keychain and the installer signs with it instead of ad hoc. The signature
+then stays the same across reinstalls, so Microphone and Screen Recording permissions are kept, and macOS can
+allow real notifications (the "Meeting detected" notification with buttons, clickable "Notes ready" alerts).
+
+```bash
+security find-identity -p codesigning          # list the identities you have
+SIGN_IDENTITY="Apple Development: Your Name (TEAMID)" bash install.sh
+```
+
+Ways to get an identity:
+
+- **Free Apple Development certificate** (recommended): sign in with your Apple ID in Xcode > Settings > Accounts,
+  then Manage Certificates > + > Apple Development. It is valid for a year; renew it the same way when
+  `find-identity` shows `CSSMERR_TP_CERT_EXPIRED`.
+- **Self-signed certificate**: Keychain Access > Certificate Assistant > Create a Certificate…, Identity Type
+  Self Signed Root, Certificate Type Code Signing, then use its name as `SIGN_IDENTITY`. This keeps permissions
+  across reinstalls; whether macOS grants notification permission for it is less certain than with an Apple
+  certificate.
+
+After the first signed install, allow the permissions once more (the signature changed from ad hoc), and allow
+notifications when asked or under System Settings > Notifications > Meeting Notes.
 
 ## Use
 
 - Join a call. A "Meeting detected" prompt appears after a few seconds: **Start notes**, **Not now**, or
   **Never for this app**. You can also press **Start meeting** in the window or the menu bar.
+  The prompt is a notification when notifications are allowed (click it or choose Start notes from its Options
+  menu; set the app to **Alerts** in System Settings > Notifications to keep it on screen), and otherwise a small
+  floating panel. Settings > Automatic > Ask with chooses between them.
 - The menu bar icon shows the state: waveform (idle), red dot (recording), hourglass (transcribing / writing notes).
 - When the notes are ready you get a notification; click it to open the meeting. macOS refuses notification
   permission for ad hoc signed apps, so in that case the alert is sent through Script Editor instead (allow Script
-  Editor under System Settings > Notifications). Settings > Setup shows the status and has a **Send test** button.
+  Editor under System Settings > Notifications) and calls are offered with the floating panel; see
+  [Signing with a certificate](#signing-with-a-certificate-optional). Settings > Setup shows the status and has a **Send test** button.
 - Closing the window keeps the app running in the menu bar (no Dock icon). Open it again from the menu bar or
   by opening the app. It starts at login by default; turn that off in Settings.
 - Leave the call and recording stops on its own about 5 seconds later. Transcription takes roughly a minute per

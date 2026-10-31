@@ -19,6 +19,7 @@ enum Keys {
     static let codexPath = "codexPath"
     static let notesProvider = "notesProvider"
     static let notesInstructions = "notesInstructions"
+    static let promptStyle = "promptStyle"     // "notification" or "panel"
 }
 
 func registerDefaults() {
@@ -39,6 +40,7 @@ func registerDefaults() {
         Keys.keepAudio: true,
         Keys.outputDir: (NSHomeDirectory() as NSString).appendingPathComponent("Documents/Meetings"),
         Keys.ignoredApps: [String](),
+        Keys.promptStyle: "notification",
     ])
 }
 
@@ -185,6 +187,7 @@ final class AppModel: ObservableObject {
     private var candidate: MicUser?
     private var candidateSince = Date()
     private var dismissedKey: String?
+    private var promptUser: MicUser?   // the call being asked about (panel or notification)
     private var names: [String: String?] = [:]   // meeting name per call app key, from its call tab
 
     func launch() {
@@ -227,7 +230,7 @@ final class AppModel: ObservableObject {
     func start(title: String? = nil, trigger: MicUser? = nil) {
         guard recording == nil, !starting else { return }
         starting = true
-        prompt.hide()
+        hidePrompt()
         // Don't offer or auto-start again for this app until it releases the mic
         // (prevents a retry loop if starting fails, e.g. missing permission).
         if let k = trigger?.key { dismissedKey = k }
@@ -396,16 +399,17 @@ final class AppModel: ObservableObject {
         }
 
         guard d.bool(forKey: Keys.autoDetect), !starting else {
-            prompt.hide()
+            hidePrompt()
             return
         }
         guard let u = users.first else {
             candidate = nil
             dismissedKey = nil
-            prompt.hide()
+            hidePrompt()
             return
         }
         if let k = dismissedKey, !users.contains(where: { $0.key == k }) { dismissedKey = nil }
+        if let p = promptUser, !users.contains(where: { $0.key == p.key }) { hidePrompt() }
         if candidate?.key != u.key {
             candidate = u
             candidateSince = now
@@ -413,42 +417,127 @@ final class AppModel: ObservableObject {
             Task { names[u.key] = .some(await CallInfo.meetingName(for: u)) }
             return
         }
-        guard u.key != dismissedKey, now.timeIntervalSince(candidateSince) >= 4, !prompt.isVisible else { return }
+        guard u.key != dismissedKey, now.timeIntervalSince(candidateSince) >= 4, promptUser == nil else { return }
 
         if d.bool(forKey: Keys.autoStart) {
             start(trigger: u)
         } else {
-            prompt.show(
-                appName: u.name,
-                meetingName: names[u.key] ?? nil,
-                onStart: { [weak self] in self?.start(trigger: u) },
-                onDismiss: { [weak self] in
-                    self?.dismissedKey = u.key
-                    self?.prompt.hide()
-                },
-                onNever: { [weak self] in
-                    var list = UserDefaults.standard.stringArray(forKey: Keys.ignoredApps) ?? []
-                    if !list.contains(u.key) { list.append(u.key) }
-                    UserDefaults.standard.set(list, forKey: Keys.ignoredApps)
-                    self?.prompt.hide()
-                }
-            )
+            showPrompt(u)
+        }
+    }
+
+    // MARK: Call prompt
+
+    /// Asks with a notification when allowed (and chosen in Settings), otherwise with the floating panel.
+    private func showPrompt(_ u: MicUser) {
+        promptUser = u
+        let meetingName = names[u.key] ?? nil
+        guard UserDefaults.standard.string(forKey: Keys.promptStyle) != "panel" else {
+            showPanel(u, meetingName: meetingName)
+            return
+        }
+        Notifier.shared.postCallPrompt(appName: u.name, meetingName: meetingName, key: u.key) { [weak self] ok in
+            Task { @MainActor in
+                // Not allowed (e.g. ad hoc signed build): a Script Editor notification can't start a recording.
+                if !ok, let self, self.promptUser?.key == u.key { self.showPanel(u, meetingName: meetingName) }
+            }
+        }
+    }
+
+    private func showPanel(_ u: MicUser, meetingName: String?) {
+        prompt.show(
+            appName: u.name,
+            meetingName: meetingName,
+            onStart: { [weak self] in self?.promptAction(.start, key: u.key) },
+            onDismiss: { [weak self] in self?.promptAction(.notNow, key: u.key) },
+            onNever: { [weak self] in self?.promptAction(.never, key: u.key) }
+        )
+    }
+
+    private func hidePrompt() {
+        prompt.hide()
+        if promptUser != nil { Notifier.shared.removeCallPrompt() }
+        promptUser = nil
+    }
+
+    enum PromptAction { case start, notNow, never }
+
+    /// Answer from the panel or the notification. Ignored if that call is no longer being asked about.
+    func promptAction(_ action: PromptAction, key: String) {
+        guard let u = promptUser, u.key == key else { return }
+        switch action {
+        case .start:
+            start(trigger: u)
+        case .notNow:
+            dismissedKey = u.key
+            hidePrompt()
+        case .never:
+            var list = UserDefaults.standard.stringArray(forKey: Keys.ignoredApps) ?? []
+            if !list.contains(u.key) { list.append(u.key) }
+            UserDefaults.standard.set(list, forKey: Keys.ignoredApps)
+            hidePrompt()
         }
     }
 }
 
 // MARK: Notifications
 
-/// "Notes ready" notifications. Clicking one opens the window on that meeting.
+/// "Notes ready" notifications (clicking one opens the window on that meeting) and the "Meeting detected" prompt.
 final class Notifier: NSObject, UNUserNotificationCenterDelegate {
     static let shared = Notifier()
+
+    static let callCategory = "callDetected"
+    static let callPromptID = "callDetected"   // one fixed id, so a new prompt replaces the old one
+    static let startAction = "start"
+    static let notNowAction = "notNow"
+    static let neverAction = "never"
 
     /// Last notification error, shown in Settings (UserDefaults, so it survives relaunches).
     static let errorKey = "notificationError"
 
     func setUp() {
-        UNUserNotificationCenter.current().delegate = self
+        let center = UNUserNotificationCenter.current()
+        center.delegate = self
+        center.setNotificationCategories([UNNotificationCategory(
+            identifier: Notifier.callCategory,
+            actions: [
+                UNNotificationAction(identifier: Notifier.startAction, title: "Start notes"),
+                UNNotificationAction(identifier: Notifier.notNowAction, title: "Not now"),
+                UNNotificationAction(identifier: Notifier.neverAction, title: "Never for this app", options: .destructive),
+            ],
+            intentIdentifiers: [],
+            options: .customDismissAction   // clearing it counts as "Not now"
+        )])
         requestPermission { _ in }
+        removeCallPrompt()   // left over from a previous run
+    }
+
+    /// Posts the "Meeting detected" notification. `done(false)` when notifications aren't allowed.
+    func postCallPrompt(appName: String, meetingName: String?, key: String, done: @escaping @Sendable (Bool) -> Void) {
+        let center = UNUserNotificationCenter.current()
+        center.getNotificationSettings { settings in
+            guard settings.authorizationStatus == .authorized || settings.authorizationStatus == .provisional else {
+                done(false)
+                return
+            }
+            let content = UNMutableNotificationContent()
+            content.title = meetingName ?? "Meeting detected"
+            content.body = "\(appName) is using the microphone. Start notes?"
+            content.sound = UNNotificationSound(named: UNNotificationSoundName("Glass"))
+            content.categoryIdentifier = Notifier.callCategory
+            content.userInfo = ["callKey": key]
+            let request = UNNotificationRequest(identifier: Notifier.callPromptID, content: content, trigger: nil)
+            center.add(request) { error in
+                if let error { NSLog("MeetingNotes: call notification error: \(error)") }
+                done(error == nil)
+            }
+        }
+    }
+
+    func removeCallPrompt() {
+        let center = UNUserNotificationCenter.current()
+        center.removeDeliveredNotifications(withIdentifiers: [Notifier.callPromptID])
+        center.removePendingNotificationRequests(withIdentifiers: [Notifier.callPromptID])
     }
 
     func requestPermission(_ done: @escaping @Sendable (Bool) -> Void) {
@@ -511,6 +600,18 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
 
     func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
                                 withCompletionHandler completionHandler: @escaping () -> Void) {
+        let info = response.notification.request.content.userInfo
+        if let key = info["callKey"] as? String {
+            let action: AppModel.PromptAction? = switch response.actionIdentifier {
+            case Notifier.startAction, UNNotificationDefaultActionIdentifier: .start   // clicking it starts too
+            case Notifier.notNowAction, UNNotificationDismissActionIdentifier: .notNow
+            case Notifier.neverAction: .never
+            default: nil
+            }
+            Task { @MainActor in if let action { AppModel.shared.promptAction(action, key: key) } }
+            completionHandler()
+            return
+        }
         let path = response.notification.request.content.userInfo["folder"] as? String
         Task { @MainActor in
             let model = AppModel.shared
