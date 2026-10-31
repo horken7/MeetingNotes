@@ -105,6 +105,89 @@ func testStore() throws {
     expectEqual(all.first?.isBusy, false)
 }
 
+func testArchiveAudio() throws {
+    let fm = FileManager.default
+    let dir = fm.temporaryDirectory.appendingPathComponent("mn-archive-\(UUID().uuidString)")
+    try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+    defer { try? fm.removeItem(at: dir) }
+    Store.writeMeta(Meta(title: "Weekly", status: "done"), to: dir)
+    for f in ["me.wav", "others.wav", "me.caf", "transcript.md", "notes.md", "me.json"] {
+        try "x".write(to: dir.appendingPathComponent(f), atomically: true, encoding: .utf8)
+    }
+    expectEqual(Store.audioFiles(dir).map(\.lastPathComponent).sorted(), ["me.caf", "me.wav", "others.wav"])
+    let before = Meeting(folder: dir, meta: Meta(title: "Weekly"), created: Date(), status: "done",
+                         hasAudio: !Store.audioFiles(dir).isEmpty)
+    expect(!before.isArchived, "meeting with audio is not archived")
+
+    Store.archiveAudio(dir)
+    expect(Store.audioFiles(dir).isEmpty, "audio files are deleted")
+    for f in ["transcript.md", "notes.md", "meta.json", "me.json"] {
+        expect(fm.fileExists(atPath: dir.appendingPathComponent(f).path), "\(f) is kept")
+    }
+    expect(Store.readMeta(dir)?.audioArchived != nil, "archive date is recorded")
+    expectEqual(Store.readMeta(dir)?.title, "Weekly")
+    let after = Meeting(folder: dir, meta: Meta(title: "Weekly"), created: Date(), status: "done", hasAudio: false)
+    expect(after.isArchived, "meeting without audio is archived")
+    expect(!Meeting(folder: dir, meta: Meta(title: "R"), created: Date(), status: "recording").isArchived,
+           "a recording in progress is not archived")
+}
+
+func testSearch() {
+    expect(TextSearch.matches("budget anna", in: "Weekly\n**Anna:** We agreed on the Budget."), "all words, any order, any case")
+    expect(TextSearch.matches("mote", in: "Möte om budget"), "diacritics are ignored")
+    expect(!TextSearch.matches("budget bob", in: "Anna: the budget"), "every word must appear")
+    expect(TextSearch.matches("  ", in: "anything"), "empty query matches everything")
+    expectEqual(TextSearch.ranges(of: "ab", in: "abcABab").count, 3)
+    expectEqual(TextSearch.ranges(of: "aa", in: "aaaa").count, 2)
+    expectEqual(TextSearch.ranges(of: "", in: "abc").count, 0)
+
+    // Find in note matches the rendered text: Markdown markers and list bullets don't get in the way.
+    let note = "## Budget\n\n- **Anna:** budget is fine\n- [ ] Send the budget\nNo match here"
+    expectEqual(MarkdownView.matches(of: "budget", in: note),
+                [.init(line: 0, index: 0), .init(line: 2, index: 0), .init(line: 3, index: 0)])
+    expectEqual(MarkdownView.matches(of: "Anna: budget", in: note), [.init(line: 2, index: 0)])
+    expectEqual(MarkdownView.matches(of: "[ ]", in: note), [])
+    expectEqual(MarkdownView.matches(of: "", in: note), [])
+
+    // A long transcript stays quick to search.
+    let transcript = (0..<500).map { "[\(formatDuration(Double($0) * 7))] **Anna:** line \($0) about the budget and the plan" }
+        .joined(separator: "\n\n")
+    let start = Date()
+    let found = MarkdownView.matches(of: "plan", in: transcript)
+    expectEqual(found.count, 500)
+    expect(Date().timeIntervalSince(start) < 0.5, "searching 500 lines took \(Date().timeIntervalSince(start)) s")
+}
+
+// Capture can fail mid-meeting (#4): earlier segments are kept as me-N/others-N, and a meeting
+// with only the microphone track is still transcribed.
+func testSegmentsAndMicOnly() throws {
+    let fm = FileManager.default
+    let dir = fm.temporaryDirectory.appendingPathComponent("mn-segments-\(UUID().uuidString)")
+    try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+    defer { try? fm.removeItem(at: dir) }
+    func touch(_ f: String) throws { try "x".write(to: dir.appendingPathComponent(f), atomically: true, encoding: .utf8) }
+
+    try touch("me.caf")
+    expectEqual(Pipeline.tracks(in: dir), ["me"])   // mic only: nothing from the call audio
+
+    try touch("others.caf")
+    let kept = Store.closeSegment(dir, number: 1, offsets: ["me": 0.5, "others": 0], start: 0)
+    expectEqual(kept, ["me-1": 0.5, "others-1": 0])
+    expect(!fm.fileExists(atPath: dir.appendingPathComponent("me.caf").path), "segment files are renamed")
+    try touch("me.caf")   // the mic-only segment after the failure
+    let later = Store.closeSegment(dir, number: 2, offsets: ["missing": 1], start: 600)
+    expectEqual(later, [:])
+    try touch("transcript.md")
+    try touch("me.json")
+    try touch("notes-2.wav")
+    expectEqual(Pipeline.tracks(in: dir), ["me", "me-1", "others-1"])
+
+    expectEqual(Pipeline.speaker(of: "me"), "me")
+    expectEqual(Pipeline.speaker(of: "others-12"), "others")
+    expectEqual(Pipeline.speaker(of: "me-x"), nil)
+    expectEqual(Pipeline.speaker(of: "notes"), nil)
+}
+
 func testCallTitles() {
     expectEqual(CallInfo.cleanTitle("Meet – Work RightHub"), "Work RightHub")
     expectEqual(CallInfo.cleanTitle("(2) Meet - Weekly sync"), "Weekly sync")
@@ -331,6 +414,9 @@ struct TestMain {
         testMerge()
         testMicUser()
         do { try testStore() } catch { expect(false, "Store threw: \(error)") }
+        do { try testArchiveAudio() } catch { expect(false, "archive threw: \(error)") }
+        testSearch()
+        do { try testSegmentsAndMicOnly() } catch { expect(false, "segments threw: \(error)") }
         testCallTitles()
         do { try testNotificationSummary() } catch { expect(false, "notes summary threw: \(error)") }
         testToolsEnvironment()

@@ -67,6 +67,30 @@ func formatDuration(_ seconds: Double) -> String {
     return String(format: "%d:%02d", t / 60, t % 60)
 }
 
+// MARK: Search
+
+enum TextSearch {
+    private static let options: String.CompareOptions = [.caseInsensitive, .diacriticInsensitive]
+
+    /// True when every word of the query appears somewhere in the text (in any order).
+    static func matches(_ query: String, in text: String) -> Bool {
+        let words = query.split(whereSeparator: \.isWhitespace)
+        return words.allSatisfy { text.range(of: $0, options: options) != nil }
+    }
+
+    /// Every occurrence of the query in the text, for find-in-note highlighting.
+    static func ranges(of query: String, in text: String) -> [Range<String.Index>] {
+        guard !query.isEmpty else { return [] }
+        var result: [Range<String.Index>] = []
+        var from = text.startIndex
+        while from < text.endIndex, let r = text.range(of: query, options: options, range: from..<text.endIndex) {
+            result.append(r)
+            from = r.upperBound
+        }
+        return result
+    }
+}
+
 // MARK: Storage
 
 struct Meta: Codable, Hashable {
@@ -78,6 +102,7 @@ struct Meta: Codable, Hashable {
     var lang: String?
     var offsets: [String: Double]?
     var duration: Double?
+    var audioArchived: Date?   // when the audio files were deleted with "Archive audio files"
 }
 
 struct Meeting: Identifiable, Hashable {
@@ -85,10 +110,13 @@ struct Meeting: Identifiable, Hashable {
     var meta: Meta
     var created: Date
     var status: String
+    var hasAudio = false
 
     var id: String { folder.path }
     var title: String { meta.title }
     var isBusy: Bool { ["recording", "transcribing", "summarizing"].contains(status) }
+    /// The audio is gone (archived, or not kept), so the transcript can't be redone.
+    var isArchived: Bool { !hasAudio && !isBusy }
 }
 
 enum Store {
@@ -133,9 +161,38 @@ enum Store {
             if status.isEmpty {
                 status = fm.fileExists(atPath: dir.appendingPathComponent("notes.md").path) ? "done" : "failed"
             }
-            return Meeting(folder: dir, meta: meta, created: created, status: status)
+            return Meeting(folder: dir, meta: meta, created: created, status: status, hasAudio: !audioFiles(dir).isEmpty)
         }
         return meetings.sorted { $0.created > $1.created }
+    }
+
+    /// The meeting's recordings (me/others as .caf while recording, .wav after transcription).
+    static func audioFiles(_ folder: URL) -> [URL] {
+        let files = (try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)) ?? []
+        return files.filter { ["caf", "wav"].contains($0.pathExtension.lowercased()) }
+    }
+
+    /// Deletes the recordings but keeps the transcript, notes and meta.json.
+    static func archiveAudio(_ folder: URL) {
+        for f in audioFiles(folder) { try? FileManager.default.removeItem(at: f) }
+        update(folder) { $0.audioArchived = Date() }
+    }
+
+    /// Ends a recording segment when capture has to restart mid-meeting: renames its tracks to me-N/others-N
+    /// so the next segment can write me/others again, and returns their offsets from the meeting start.
+    static func closeSegment(_ folder: URL, number: Int, offsets: [String: Double], start: Double) -> [String: Double] {
+        var result: [String: Double] = [:]
+        for (track, offset) in offsets {
+            let name = "\(track)-\(number)"
+            do {
+                try FileManager.default.moveItem(at: folder.appendingPathComponent("\(track).caf"),
+                                                 to: folder.appendingPathComponent("\(name).caf"))
+                result[name] = start + offset
+            } catch {
+                NSLog("MeetingNotes: couldn't keep segment \(name): \(error)")
+            }
+        }
+        return result
     }
 
     static func newFolder(title: String, date: Date) throws -> URL {
@@ -166,6 +223,9 @@ struct ActiveRecording {
     var lastSeen: Date       // last time the call app had the mic open
     var lastAudio: Date      // last time it had the mic open or was playing sound
     var stopsAt: Date?       // set while the call looks over and auto-stop is counting down
+    var segments = 0         // earlier segments, when capture failed and was restarted mid-meeting
+    var segmentStart = 0.0   // seconds from `start` to the current segment
+    var micOnly = false      // recording only the microphone because system audio capture failed
 }
 
 @MainActor
@@ -177,10 +237,14 @@ final class AppModel: ObservableObject {
     @Published var recording: ActiveRecording?
     @Published var starting = false
     @Published var banner: String?
+    @Published var findRequest = 0     // bumped by Edit > Find (⌘F) to open the find bar in the open meeting
+    @Published var searchRequest = 0   // bumped by Edit > Search Meetings (⌥⌘F) to focus the sidebar search
     var openMainWindow: (() -> Void)?   // set by the menu bar label, which has SwiftUI's openWindow
     @Published var now = Date()   // ticks every second while recording, for the menu bar clock
 
-    private var recorder: Recorder?
+    private var recorder: AudioCapture?
+    private var switching = false        // replacing a failed capture; stop() waits for it
+    private var stopAfterSwitch = false
     private var timer: Timer?
     private var clock: Timer?
     private let prompt = PromptPanel()
@@ -189,6 +253,7 @@ final class AppModel: ObservableObject {
     private var dismissedKey: String?
     private var promptUser: MicUser?   // the call being asked about (panel or notification)
     private var names: [String: String?] = [:]   // meeting name per call app key, from its call tab
+    private var searchCache: [String: String] = [:]   // title, notes and transcript per meeting, for the sidebar search
 
     func launch() {
         Notifier.shared.setUp()
@@ -214,6 +279,24 @@ final class AppModel: ObservableObject {
 
     func reload() {
         meetings = Store.loadAll()
+        searchCache = [:]
+    }
+
+    /// Meetings whose title, notes or transcript contain every word of the query.
+    func meetings(matching query: String) -> [Meeting] {
+        let q = query.trimmingCharacters(in: .whitespaces)
+        guard !q.isEmpty else { return meetings }
+        return meetings.filter { m in
+            let text = searchCache[m.id] ?? {
+                let body = ["notes.md", "transcript.md"].compactMap {
+                    try? String(contentsOf: m.folder.appendingPathComponent($0), encoding: .utf8)
+                }
+                let t = ([m.title] + body).joined(separator: "\n")
+                searchCache[m.id] = t
+                return t
+            }()
+            return TextSearch.matches(q, in: text)
+        }
     }
 
     private func markInterrupted() {
@@ -256,21 +339,25 @@ final class AppModel: ObservableObject {
                      lang: SettingsSnapshot.current().language),
                 to: folder
             )
-            let rec = Recorder(folder: folder)
-            rec.onError = { [weak self] message in
-                Task { @MainActor in self?.recordingFailed(message) }
-            }
+            let rec = makeRecorder(folder)
+            var micOnly = false
             do {
                 try await rec.start()
+                recorder = rec
             } catch {
-                try? FileManager.default.removeItem(at: folder)
-                banner = "Couldn't start recording (\(error.localizedDescription)). Allow Meeting Notes under System Settings > Privacy & Security > Screen & System Audio Recording, then quit and reopen the app."
-                reload()
-                return
+                // The other people's audio can't be captured: record the microphone alone rather than nothing.
+                guard let mic = startMicOnly(folder) else {
+                    try? FileManager.default.removeItem(at: folder)
+                    banner = "Couldn't start recording (\(error.localizedDescription)). Allow Meeting Notes under System Settings > Privacy & Security > Screen & System Audio Recording, then quit and reopen the app."
+                    reload()
+                    return
+                }
+                recorder = mic
+                micOnly = true
+                banner = "Recording only your microphone, because the call audio couldn't be captured (\(error.localizedDescription)). To record the other people too, allow Meeting Notes under System Settings > Privacy & Security > Screen & System Audio Recording, then quit and reopen the app."
             }
-            recorder = rec
             recording = ActiveRecording(folder: folder, title: name, start: now,
-                                        triggerKey: trigger?.key, lastSeen: now, lastAudio: now)
+                                        triggerKey: trigger?.key, lastSeen: now, lastAudio: now, micOnly: micOnly)
             reload()
             selection = folder.path
             // Not looked up yet (e.g. auto-start): fill in the meeting name when it arrives.
@@ -284,13 +371,18 @@ final class AppModel: ObservableObject {
     }
 
     func stop() {
-        guard let rec = recorder, let active = recording else { return }
+        guard let active = recording else { return }
+        if switching {
+            stopAfterSwitch = true
+            return
+        }
+        let rec = recorder
         recorder = nil
         recording = nil
         // If the call app still has the mic (manual stop), don't immediately prompt/auto-start again.
         if let k = active.triggerKey { dismissedKey = k }
         Task {
-            let offsets = await rec.stop()
+            let offsets = await finishSegment(rec, active)
             Store.update(active.folder) {
                 $0.offsets = offsets
                 $0.duration = Date().timeIntervalSince(active.start)
@@ -303,10 +395,11 @@ final class AppModel: ObservableObject {
     }
 
     func stopForQuit() async {
-        guard let rec = recorder, let active = recording else { return }
+        guard let active = recording else { return }
+        let rec = recorder
         recorder = nil
         recording = nil
-        let offsets = await rec.stop()
+        let offsets = await finishSegment(rec, active)
         Store.update(active.folder) {
             $0.offsets = offsets
             $0.duration = Date().timeIntervalSince(active.start)
@@ -315,10 +408,60 @@ final class AppModel: ObservableObject {
         }
     }
 
-    private func recordingFailed(_ message: String) {
-        guard recording != nil else { return }
-        banner = "Recording stopped: \(message)"
-        stop()
+    private func makeRecorder(_ folder: URL) -> Recorder {
+        let rec = Recorder(folder: folder)
+        rec.onError = { [weak self, weak rec] message in
+            Task { @MainActor in self?.recordingFailed(message, from: rec) }
+        }
+        return rec
+    }
+
+    private func startMicOnly(_ folder: URL) -> MicRecorder? {
+        guard let mic = try? MicRecorder(folder: folder), (try? mic.start()) != nil else { return nil }
+        return mic
+    }
+
+    /// Stops the current capture and returns the offsets of every track recorded in this meeting.
+    private func finishSegment(_ rec: AudioCapture?, _ active: ActiveRecording) async -> [String: Double] {
+        let current = await rec?.stop() ?? [:]
+        let earlier = Store.readMeta(active.folder)?.offsets ?? [:]
+        return earlier.merging(current.mapValues { $0 + active.segmentStart }) { $1 }
+    }
+
+    /// System audio capture stopped mid-meeting (e.g. ScreenCaptureKit lost its display when the lid closed or a
+    /// monitor was unplugged). Keep what was recorded as a segment and carry on: with full capture again if it
+    /// starts, otherwise with the microphone alone. Only if neither works does the recording stop.
+    private func recordingFailed(_ message: String, from failed: Recorder?) {
+        guard let failed, recorder === failed, let active = recording, !switching else { return }
+        NSLog("MeetingNotes: capture stopped: \(message)")
+        switching = true
+        Task {
+            let offsets = await failed.stop()
+            let number = active.segments + 1
+            let kept = Store.closeSegment(active.folder, number: number, offsets: offsets, start: active.segmentStart)
+            Store.update(active.folder) { $0.offsets = ($0.offsets ?? [:]).merging(kept) { $1 } }
+            let segmentStart = Date().timeIntervalSince(active.start)
+            // Try full capture again, unless it only just failed (then it would likely keep failing).
+            let next = makeRecorder(active.folder)
+            if segmentStart - active.segmentStart > 30, (try? await next.start()) != nil {
+                recorder = next
+            } else if let mic = startMicOnly(active.folder) {
+                recorder = mic
+                recording?.micOnly = true
+                banner = "The call audio stopped being captured (\(message)). Recording continues with only your microphone."
+            } else {
+                recorder = nil
+                banner = "Recording stopped: \(message)"
+                stopAfterSwitch = true
+            }
+            recording?.segments = number
+            recording?.segmentStart = segmentStart
+            switching = false
+            if stopAfterSwitch {
+                stopAfterSwitch = false
+                stop()
+            }
+        }
     }
 
     /// Shows the call prompt with sample text (used for the README screenshots).
@@ -358,6 +501,12 @@ final class AppModel: ObservableObject {
         let t = newTitle.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !t.isEmpty, t != m.title else { return }
         Store.update(m.folder) { $0.title = t }
+        reload()
+    }
+
+    func archiveAudio(_ m: Meeting) {
+        guard !m.isBusy else { return }
+        Store.archiveAudio(m.folder)
         reload()
     }
 

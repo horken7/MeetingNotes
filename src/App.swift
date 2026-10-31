@@ -17,6 +17,14 @@ struct MeetingNotesApp: App {
             MainView().environmentObject(model)
         }
         .defaultSize(width: 1000, height: 660)
+        .commands {
+            CommandGroup(replacing: .textEditing) {
+                Button("Find in Meeting…") { model.findRequest += 1 }
+                    .keyboardShortcut("f")
+                Button("Search Meetings…") { model.searchRequest += 1 }
+                    .keyboardShortcut("f", modifiers: [.command, .option])
+            }
+        }
 
         MenuBarExtra {
             MenuContent().environmentObject(model)

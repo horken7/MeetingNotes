@@ -9,11 +9,14 @@ struct MainView: View {
     @EnvironmentObject var model: AppModel
     @State private var showSettings = false
     @State private var pendingTrash: Meeting?
+    @State private var query = ""
+    @FocusState private var searchFocused: Bool
 
     var body: some View {
+        let shown = model.meetings(matching: query)
         NavigationSplitView {
             List(selection: $model.selection) {
-                ForEach(model.meetings) { m in
+                ForEach(shown) { m in
                     MeetingRow(meeting: m).tag(m.id)
                         .contextMenu {
                             Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([m.folder]) }
@@ -34,6 +37,9 @@ struct MainView: View {
                     pendingTrash = nil
                 }
             }
+            .searchable(text: $query, placement: .sidebar, prompt: "Search meetings")
+            .searchFocused($searchFocused)
+            .onChange(of: model.searchRequest) { _, _ in searchFocused = true }
             .overlay {
                 if model.meetings.isEmpty {
                     ContentUnavailableView(
@@ -41,12 +47,14 @@ struct MainView: View {
                         systemImage: "waveform",
                         description: Text("Press Start when a call begins, or just join a call and Meeting Notes will offer to take notes.")
                     )
+                } else if shown.isEmpty {
+                    ContentUnavailableView.search(text: query)
                 }
             }
             .navigationSplitViewColumnWidth(min: 240, ideal: 290)
         } detail: {
             if let m = model.meetings.first(where: { $0.id == model.selection }) {
-                MeetingDetail(meeting: m).id(m.id)
+                MeetingDetail(meeting: m, search: query).id(m.id)
             } else {
                 ContentUnavailableView("Select a meeting", systemImage: "doc.text")
             }
@@ -132,6 +140,9 @@ struct MeetingRow: View {
                 Text(meeting.created, format: .dateTime.day().month(.abbreviated).hour().minute())
                 if let d = meeting.meta.duration { Text("· \(formatDuration(d))") }
                 Spacer()
+                if meeting.isArchived && meeting.status == "done" {
+                    Image(systemName: "archivebox").help("Audio archived")
+                }
                 StatusBadge(status: meeting.status)
             }
             .font(.caption)
@@ -165,12 +176,19 @@ struct StatusBadge: View {
 struct MeetingDetail: View {
     @EnvironmentObject var model: AppModel
     let meeting: Meeting
+    var search = ""   // the sidebar search, which opens the find bar when the meeting is opened
 
     @State private var title = ""
     @State private var tab = 0
+    @State private var finding = false
+    @State private var find = ""
+    @State private var current = 0   // index of the selected match
+    @State private var matches: [MarkdownView.Match] = []
+    @FocusState private var findFocused: Bool
     @State private var notes = ""
     @State private var transcript = ""
     @State private var confirmTrash = false
+    @State private var confirmArchive = false
     @State private var copied = false
 
     var body: some View {
@@ -184,6 +202,11 @@ struct MeetingDetail: View {
                     Text(meeting.created, format: .dateTime.weekday(.wide).day().month().year().hour().minute())
                     if let d = meeting.meta.duration { Text("· \(formatDuration(d))") }
                     if let app = meeting.meta.app { Text("· \(app)") }
+                    if meeting.isArchived {
+                        Text("·")
+                        Label("Audio archived", systemImage: "archivebox")
+                            .help("The audio files were deleted, so the transcript can't be redone.")
+                    }
                 }
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
@@ -222,22 +245,36 @@ struct MeetingDetail: View {
             .padding(.horizontal, 20)
             .padding(.bottom, 10)
 
+            if finding { findBar }
+
             Divider()
 
-            ScrollView {
-                let text = tab == 0 ? notes : transcript
-                Group {
-                    if text.isEmpty {
-                        Text(placeholder).foregroundStyle(.secondary)
-                    } else {
-                        MarkdownView(text: text)
+            ScrollViewReader { proxy in
+                ScrollView {
+                    let text = tab == 0 ? notes : transcript
+                    Group {
+                        if text.isEmpty {
+                            Text(placeholder).foregroundStyle(.secondary)
+                        } else {
+                            MarkdownView(text: text, highlight: finding ? find : "", current: currentMatch)
+                        }
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(20)
+                    .textSelection(.enabled)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(20)
-                .textSelection(.enabled)
+                .onChange(of: currentMatch) { _, m in
+                    if let m { withAnimation { proxy.scrollTo(m.line, anchor: .center) } }
+                }
             }
         }
+        .onChange(of: model.findRequest) { _, _ in
+            finding = true
+            findFocused = true
+        }
+        .onChange(of: find) { _, _ in refreshMatches() }
+        .onChange(of: tab) { _, _ in refreshMatches() }
+        .onChange(of: finding) { _, _ in refreshMatches() }
         .toolbar {
             ToolbarItem {
                 Menu {
@@ -248,8 +285,10 @@ struct MeetingDetail: View {
                     Button("Regenerate notes") { model.retry(meeting, notesOnly: true) }
                         .disabled(meeting.isBusy || transcript.isEmpty)
                     Button("Redo transcript and notes") { model.retry(meeting, notesOnly: false) }
-                        .disabled(meeting.isBusy)
+                        .disabled(meeting.isBusy || meeting.isArchived)
                     Divider()
+                    Button("Archive audio files…") { confirmArchive = true }
+                        .disabled(meeting.isBusy || !meeting.hasAudio)
                     Button("Move to Trash…", role: .destructive) { confirmTrash = true }
                         .disabled(meeting.status == "recording")
                 } label: {
@@ -260,11 +299,73 @@ struct MeetingDetail: View {
         .confirmationDialog("Move \"\(meeting.title)\" to the Trash?", isPresented: $confirmTrash) {
             Button("Move to Trash", role: .destructive) { model.trash(meeting) }
         }
+        .confirmationDialog("Archive the audio for \"\(meeting.title)\"?", isPresented: $confirmArchive) {
+            Button("Delete audio files", role: .destructive) { model.archiveAudio(meeting) }
+        } message: {
+            Text("The recordings are deleted for good. The notes and transcript are kept, but the transcript can no longer be redone.")
+        }
         .task(id: meeting) {
             title = meeting.title
             notes = readBody("notes.md")
             transcript = readBody("transcript.md")
+            refreshMatches()
         }
+        .onAppear {
+            let q = search.trimmingCharacters(in: .whitespaces)
+            if !q.isEmpty {
+                find = q
+                finding = true
+                // Show the tab where the search matched.
+                let n = readBody("notes.md"), t = readBody("transcript.md")
+                if MarkdownView.matches(of: q, in: n).isEmpty, !MarkdownView.matches(of: q, in: t).isEmpty { tab = 1 }
+            }
+        }
+    }
+
+    private func refreshMatches() {
+        current = 0
+        matches = finding ? MarkdownView.matches(of: find, in: tab == 0 ? notes : transcript) : []
+    }
+
+    private var currentMatch: MarkdownView.Match? {
+        let all = matches
+        return all.isEmpty ? nil : all[min(current, all.count - 1)]
+    }
+
+    private func step(_ delta: Int) {
+        let n = matches.count
+        guard n > 0 else { return }
+        current = ((min(current, n - 1) + delta) % n + n) % n
+    }
+
+    private var findBar: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+            TextField(tab == 0 ? "Find in notes" : "Find in transcript", text: $find)
+                .textFieldStyle(.roundedBorder)
+                .focused($findFocused)
+                .onSubmit { step(1) }
+                .onExitCommand { finding = false }
+                .frame(maxWidth: 280)
+            let n = matches.count
+            if !find.isEmpty {
+                Text(n == 0 ? "No matches" : "\(min(current, n - 1) + 1) of \(n)")
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+            }
+            Button { step(-1) } label: { Image(systemName: "chevron.up") }
+                .keyboardShortcut("g", modifiers: [.command, .shift])
+                .help("Previous match (⇧⌘G)")
+                .disabled(n == 0)
+            Button { step(1) } label: { Image(systemName: "chevron.down") }
+                .keyboardShortcut("g")
+                .help("Next match (⌘G or Return)")
+                .disabled(n == 0)
+            Spacer()
+            Button("Done") { finding = false }
+        }
+        .padding(.horizontal, 20)
+        .padding(.bottom, 10)
     }
 
     private var placeholder: String {
@@ -281,7 +382,9 @@ struct MeetingDetail: View {
             StatusBox {
                 HStack {
                     Circle().fill(Color.red).frame(width: 10, height: 10)
-                    Text("Recording. Press stop when the call ends, or it stops by itself when the call app releases the mic.")
+                    Text(model.recording?.micOnly == true
+                         ? "Recording your microphone only (the call audio couldn't be captured). Press stop when the call ends."
+                         : "Recording. Press stop when the call ends, or it stops by itself when the call app releases the mic.")
                     Spacer()
                     Button("Stop and take notes") { model.stop() }
                         .buttonStyle(.borderedProminent)
@@ -349,44 +452,95 @@ struct StatusBox<Content: View>: View {
 }
 
 /// Small Markdown renderer for headings, bullets and inline formatting.
+/// Find-in-note highlights matches of `highlight`, with `current` (line and occurrence) stronger.
 struct MarkdownView: View {
     let text: String
+    var highlight = ""
+    var current: Match?
+
+    struct Match: Equatable {
+        let line: Int    // line number, also the scroll id
+        let index: Int   // occurrence within the line
+    }
 
     var body: some View {
         LazyVStack(alignment: .leading, spacing: 6) {
-            ForEach(Array(text.components(separatedBy: "\n").enumerated()), id: \.offset) { _, line in
-                lineView(line)
+            ForEach(Array(text.components(separatedBy: "\n").enumerated()), id: \.offset) { n, line in
+                lineView(line, number: n)
             }
         }
     }
 
-    @ViewBuilder private func lineView(_ raw: String) -> some View {
+    @ViewBuilder private func lineView(_ raw: String, number: Int) -> some View {
         let line = raw.trimmingCharacters(in: .whitespaces)
         let indent = CGFloat(raw.prefix(while: { $0 == " " }).count / 2) * 18
+        let content = Self.content(line)
+        let text = highlighted(Self.inline(content.text), line: number)
         if line.isEmpty {
             Color.clear.frame(height: 2)
         } else if line.hasPrefix("### ") {
-            Text(inline(String(line.dropFirst(4)))).font(.headline).padding(.top, 6)
+            Text(text).font(.headline).padding(.top, 6)
         } else if line.hasPrefix("## ") {
-            Text(inline(String(line.dropFirst(3)))).font(.title3.weight(.semibold)).padding(.top, 12)
+            Text(text).font(.title3.weight(.semibold)).padding(.top, 12)
         } else if line.hasPrefix("# ") {
-            Text(inline(String(line.dropFirst(2)))).font(.title2.weight(.bold)).padding(.top, 12)
-        } else if line.hasPrefix("- ") || line.hasPrefix("* ") {
-            let item = String(line.dropFirst(2))
-            let task = item.hasPrefix("[ ] ") ? "☐" : (item.lowercased().hasPrefix("[x] ") ? "☑" : nil)   // task lists
+            Text(text).font(.title2.weight(.bold)).padding(.top, 12)
+        } else if let bullet = content.bullet {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text(task ?? "•").foregroundStyle(.secondary)
-                Text(inline(task == nil ? item : String(item.dropFirst(4))))
+                Text(bullet).foregroundStyle(.secondary)
+                Text(text)
             }
             .padding(.leading, indent)
         } else {
-            Text(inline(line)).padding(.leading, indent)
+            Text(text).padding(.leading, indent)
         }
     }
 
-    private func inline(_ s: String) -> AttributedString {
+    /// The text shown for a (trimmed) line without its heading or list marker, and the bullet to show.
+    static func content(_ line: String) -> (text: String, bullet: String?) {
+        for prefix in ["### ", "## ", "# "] where line.hasPrefix(prefix) {
+            return (String(line.dropFirst(prefix.count)), nil)
+        }
+        if line.hasPrefix("- ") || line.hasPrefix("* ") {
+            let item = String(line.dropFirst(2))
+            let task = item.hasPrefix("[ ] ") ? "☐" : (item.lowercased().hasPrefix("[x] ") ? "☑" : nil)   // task lists
+            return (task == nil ? item : String(item.dropFirst(4)), task ?? "•")
+        }
+        return (line, nil)
+    }
+
+    static func inline(_ s: String) -> AttributedString {
         (try? AttributedString(markdown: s, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)))
             ?? AttributedString(s)
+    }
+
+    /// All matches of the query in the rendered text (Markdown markers like ** don't count).
+    static func matches(of query: String, in text: String) -> [Match] {
+        guard !query.isEmpty else { return [] }
+        var result: [Match] = []
+        for (n, raw) in text.components(separatedBy: "\n").enumerated() {
+            let line = raw.trimmingCharacters(in: .whitespaces)
+            guard !line.isEmpty else { continue }
+            let shown = String(inline(content(line).text).characters)
+            for i in TextSearch.ranges(of: query, in: shown).indices { result.append(Match(line: n, index: i)) }
+        }
+        return result
+    }
+
+    private func highlighted(_ s: AttributedString, line: Int) -> AttributedString {
+        guard !highlight.isEmpty else { return s }
+        let plain = String(s.characters)
+        let found = TextSearch.ranges(of: highlight, in: plain)
+        guard !found.isEmpty else { return s }
+        var out = s
+        for (i, r) in found.enumerated() {
+            let lower = plain.distance(from: plain.startIndex, to: r.lowerBound)
+            let length = plain.distance(from: r.lowerBound, to: r.upperBound)
+            let start = out.index(out.startIndex, offsetByCharacters: lower)
+            let end = out.index(start, offsetByCharacters: length)
+            let isCurrent = current == Match(line: line, index: i)
+            out[start..<end].backgroundColor = isCurrent ? Color.orange : Color.yellow.opacity(0.45)
+        }
+        return out
     }
 }
 
