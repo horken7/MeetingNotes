@@ -234,6 +234,94 @@ func testLoginErrors() {
     expect(!Pipeline.isLoginError("Error: prompt is too long"), "other errors are shown as is")
 }
 
+/// Pipes JSON-RPC requests into the built MCP server (MEETINGNOTES_MCP, set by run.sh) and checks the replies.
+func testMCPServer() throws {
+    guard let exe = ProcessInfo.processInfo.environment["MEETINGNOTES_MCP"] else {
+        print("Skipping MCP server tests (MEETINGNOTES_MCP not set)")
+        return
+    }
+    let fm = FileManager.default
+    let dir = fm.temporaryDirectory.appendingPathComponent("mn-mcp-\(UUID().uuidString)")
+    defer { try? fm.removeItem(at: dir) }
+    func meeting(_ name: String, _ meta: String, notes: String?, transcript: String?) throws {
+        let f = dir.appendingPathComponent(name)
+        try fm.createDirectory(at: f, withIntermediateDirectories: true)
+        try meta.write(to: f.appendingPathComponent("meta.json"), atomically: true, encoding: .utf8)
+        try notes?.write(to: f.appendingPathComponent("notes.md"), atomically: true, encoding: .utf8)
+        try transcript?.write(to: f.appendingPathComponent("transcript.md"), atomically: true, encoding: .utf8)
+        try Data([0, 1]).write(to: f.appendingPathComponent("me.wav"))
+    }
+    try meeting("2026-01-05 0900 Weekly sync",
+                #"{"title":"Weekly sync","created":"2026-01-05T09:00:00Z","status":"done","app":"Zoom","duration":1830}"#,
+                notes: "## Summary\nWe agreed on the Budget for Q1.\n", transcript: "[0:00] **Ana:** Hej, budgeten är klar.\n")
+    try meeting("2026-02-10 1400 Kundmöte", #"{"title":"Kundmöte","created":"2026-02-10T14:00:00Z","status":"transcribing"}"#,
+                notes: nil, transcript: nil)
+
+    let p = Process()
+    p.executableURL = URL(fileURLWithPath: exe)
+    p.environment = ["MEETINGNOTES_DIR": dir.path]
+    let input = Pipe(), output = Pipe()
+    p.standardInput = input
+    p.standardOutput = output
+    try p.run()
+    let requests: [[String: Any]] = [
+        ["method": "initialize", "params": ["protocolVersion": "2025-06-18", "capabilities": [:],
+                                            "clientInfo": ["name": "tests", "version": "1"]]],
+        ["method": "notifications/initialized"],
+        ["method": "tools/list"],
+        ["method": "tools/call", "params": ["name": "list_meetings", "arguments": [:]]],
+        ["method": "tools/call", "params": ["name": "list_meetings", "arguments": ["from": "2026-02-01"]]],
+        ["method": "tools/call", "params": ["name": "search_meetings", "arguments": ["query": "BUDGET"]]],
+        ["method": "tools/call", "params": ["name": "get_notes", "arguments": ["id": "2026-01-05 0900 Weekly sync"]]],
+        ["method": "tools/call", "params": ["name": "get_transcript", "arguments": ["id": "2026-02-10 1400 Kundmöte"]]],
+        ["method": "tools/call", "params": ["name": "get_notes", "arguments": ["id": "../2026-01-05 0900 Weekly sync"]]],
+        ["method": "resources/list"],
+        ["method": "nope"],
+    ]
+    var id = 0
+    for var r in requests {
+        r["jsonrpc"] = "2.0"
+        if r["method"] as? String != "notifications/initialized" { id += 1; r["id"] = id }
+        input.fileHandleForWriting.write(try JSONSerialization.data(withJSONObject: r) + Data("\n".utf8))
+    }
+    input.fileHandleForWriting.write(Data("not json\n".utf8))
+    try input.fileHandleForWriting.close()
+    let data = output.fileHandleForReading.readDataToEndOfFile()
+    p.waitUntilExit()
+    let replies = String(decoding: data, as: UTF8.self).split(separator: "\n").compactMap {
+        (try? JSONSerialization.jsonObject(with: Data($0.utf8))) as? [String: Any]
+    }
+    expectEqual(replies.count, id + 1)   // one per request plus the parse error; none for the notification
+    guard replies.count == id + 1 else { return }
+    func result(_ n: Int) -> [String: Any] { replies[n - 1]["result"] as? [String: Any] ?? [:] }
+    func text(_ n: Int) -> String {
+        ((result(n)["content"] as? [[String: Any]])?.first?["text"] as? String) ?? ""
+    }
+    func isError(_ n: Int) -> Bool { result(n)["isError"] as? Bool ?? false }
+
+    expectEqual(result(1)["protocolVersion"] as? String, "2025-06-18")
+    expectEqual(((result(2)["tools"] as? [[String: Any]]) ?? []).compactMap { $0["name"] as? String },
+                ["list_meetings", "search_meetings", "get_notes", "get_transcript"])
+    let all = text(3)
+    expect(all.contains("\"total\" : 2") && all.contains("\"duration\" : \"30:30\"") && all.contains("\"app\" : \"Zoom\""),
+           "list_meetings: \(all)")
+    expect(all.range(of: "Kundmöte")!.lowerBound < all.range(of: "Weekly sync")!.lowerBound, "newest first")
+    expect(!all.contains(".wav"), "audio files are never listed")
+    expect(text(4).contains("\"total\" : 1") && !text(4).contains("Weekly sync"), "from filters by date")
+    let search = text(5)
+    expect(search.contains("Weekly sync") && search.contains("the Budget for Q1") && search.contains("budgeten är klar"),
+           "search matches notes and transcript case-insensitively: \(search)")
+    expect(!search.contains("Kundmöte"), "search skips meetings without a match")
+    expect(text(6).hasPrefix("# Weekly sync") && text(6).contains("We agreed on the Budget"), "get_notes")
+    expect(isError(7) && text(7).contains("no transcript yet"), "missing transcript is a tool error")
+    expect(isError(8) && text(8).contains("No meeting"), "ids can't leave the meetings folder")
+    let uris = ((result(9)["resources"] as? [[String: Any]]) ?? []).compactMap { $0["uri"] as? String }
+    expectEqual(uris, ["meetingnotes://meetings/2026-01-05%200900%20Weekly%20sync/notes.md",
+                       "meetingnotes://meetings/2026-01-05%200900%20Weekly%20sync/transcript.md"])
+    expectEqual((replies[9]["error"] as? [String: Any])?["code"] as? Int, -32601)
+    expectEqual((replies[10]["error"] as? [String: Any])?["code"] as? Int, -32700)
+}
+
 @main
 struct TestMain {
     static func main() async {
@@ -249,6 +337,7 @@ struct TestMain {
         testLoginErrors()
         do { try await testNotesProviders() } catch { expect(false, "providers threw: \(error)") }
         do { try await testNotesInstructions() } catch { expect(false, "instructions threw: \(error)") }
+        do { try testMCPServer() } catch { expect(false, "MCP server threw: \(error)") }
         print("\(checks - failures)/\(checks) checks passed")
         exit(failures == 0 ? 0 : 1)
     }

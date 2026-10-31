@@ -21,6 +21,7 @@ enum Tools {
     static var model: URL { dataDir.appendingPathComponent("ggml-large-v3-turbo.bin") }
     static var vadModel: URL { dataDir.appendingPathComponent("ggml-silero-v5.1.2.bin") }
     static var modelInstalled: Bool { FileManager.default.fileExists(atPath: model.path) }
+    static var mcpServer: URL { dataDir.appendingPathComponent("bin/meetingnotes-mcp") }
 
     static func find(_ name: String, preferred: String? = nil) -> String? {
         var candidates: [String] = []

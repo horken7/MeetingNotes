@@ -90,6 +90,46 @@ format, and **Regenerate notes** applies a new format to an existing meeting.
 Meetings are saved in `Meetings/` inside this folder (ignored by git). Change the folder, your name, language,
 automatic start/stop, open at login and whether audio is kept in **Settings**.
 
+## Ask Claude about your meetings (MCP)
+
+The installer also builds a small, read-only [MCP](https://modelcontextprotocol.io) server at
+`~/.meetnotes/bin/meetingnotes-mcp`, so Claude Code, Claude Desktop and other MCP clients can look up your meetings.
+It reads `meta.json`, `notes.md` and `transcript.md` in your meetings folder (the one set in Settings), never
+audio files, and can't change or delete anything. It runs only when a client starts it, on your Mac.
+
+Claude Code (**Settings > Setup** has a button that copies this command):
+
+```bash
+claude mcp add meeting-notes -- ~/.meetnotes/bin/meetingnotes-mcp
+```
+
+Add `--scope user` to use it in every folder, not just the current project. Claude Desktop: open
+**Settings > Developer > Edit Config** and add the server to `claude_desktop_config.json` (use your full home path),
+then restart Claude Desktop:
+
+```json
+{
+  "mcpServers": {
+    "meeting-notes": {
+      "command": "/Users/YOU/.meetnotes/bin/meetingnotes-mcp"
+    }
+  }
+}
+```
+
+Then ask things like "What did we decide in last week's sync?" or "Find meetings where we talked about the budget".
+
+| Tool | What it does |
+|---|---|
+| `list_meetings` | Meetings, newest first: id, title, date, duration, status, call app. Optional `from` / `to` (YYYY-MM-DD) and `limit` |
+| `search_meetings` | Case-insensitive search across titles, notes and transcripts, with snippets |
+| `get_notes` | The notes of a meeting (by id) |
+| `get_transcript` | The transcript of a meeting (by id); long ones are returned in 100,000-character parts |
+
+Notes and transcripts of the 100 newest meetings are also listed as MCP resources. Set `MEETINGNOTES_DIR` in the
+server's environment to read another folder. Notes and transcripts you look up are sent to the MCP client's model
+like any other text you share with it.
+
 ## How it works
 
 | File | What it does |
@@ -101,6 +141,7 @@ automatic start/stop, open at login and whether audio is kept in **Settings**.
 | `src/CallInfo.swift` | Meeting name from the browser's call tab |
 | `src/Pipeline.swift` | `afconvert` to 16 kHz WAV, `whisper-cli` transcription, transcript merge, notes via `claude -p` or `codex exec` |
 | `src/Views.swift` | SwiftUI views, Markdown rendering, settings, the meeting prompt |
+| `mcp/main.swift` | Read-only MCP server (stdio, JSON-RPC) for Claude and other MCP clients |
 
 Claude Code is run with `ANTHROPIC_API_KEY` removed from its environment, so it always uses your Claude
 subscription rather than API billing. Codex uses its existing CLI authentication and default model;
@@ -117,7 +158,7 @@ bash install.sh       # builds and installs the app
 
 The tests are a small runner in `tests/main.swift` (no XCTest needed, so the command line tools are enough). They cover
 the transcript merge, noise filtering, meeting folders and metadata, call-app grouping, meeting title parsing and the
-provider routing, CLI failures and the Claude environment. CI runs the same script on GitHub Actions (`macos-15`).
+provider routing, CLI failures and the Claude environment, plus JSON-RPC round trips through the built MCP server. CI runs the same script on GitHub Actions (`macos-15`).
 
 To refresh the README screenshots (uses the app's own Screen Recording permission):
 
