@@ -704,33 +704,56 @@ struct SettingsView: View {
     }
 }
 
-/// The command that connects Claude Code to the read-only MCP server, with a copy button.
+/// Connects the read-only MCP server to Claude Desktop (extension), Claude Code and other MCP clients.
 struct MCPRow: View {
-    @State private var copied = false
-    private var command: String { "claude mcp add meeting-notes -- ~/.meetnotes/bin/meetingnotes-mcp" }
+    @State private var copied: String?
+
+    private var path: String { Tools.mcpServer.path }
+    private var config: String {
+        """
+        {
+          "mcpServers": {
+            "meeting-notes": {
+              "command": "\(path)"
+            }
+          }
+        }
+        """
+    }
 
     var body: some View {
-        let installed = FileManager.default.isExecutableFile(atPath: Tools.mcpServer.path)
+        let installed = FileManager.default.isExecutableFile(atPath: path)
         VStack(alignment: .leading, spacing: 6) {
             HStack {
                 Image(systemName: installed ? "checkmark.circle.fill" : "xmark.circle.fill")
                     .foregroundStyle(installed ? Color.green : Color.red)
-                Text("Ask Claude about your meetings (MCP server)")
+                Text("Ask AI apps about your meetings (MCP server)")
                 Spacer()
-                Button(copied ? "Copied" : "Copy command") {
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(command, forType: .string)
-                    copied = true
+                Button("Add to Claude Desktop") { NSWorkspace.shared.open(Tools.mcpExtension) }
+                    .disabled(!installed || !FileManager.default.fileExists(atPath: Tools.mcpExtension.path))
+                    .help("Opens the Meeting Notes extension in Claude Desktop, which asks you to install it")
+                Menu(copied.map { "Copied \($0)" } ?? "Other apps") {
+                    Button("Claude Code command") { copy("claude mcp add --scope user meeting-notes -- \(path)", "Claude Code") }
+                    Button("Codex command") { copy("codex mcp add meeting-notes -- \(path)", "Codex") }
+                    Button("VS Code command") {
+                        copy("code --add-mcp '{\"name\":\"meeting-notes\",\"command\":\"\(path)\"}'", "VS Code")
+                    }
+                    Button("JSON config (Cursor, LM Studio, others)") { copy(config, "JSON") }
+                    Button("Server path") { copy(path, "path") }
                 }
+                .fixedSize()
                 .disabled(!installed)
             }
-            Text(installed ? "Run this once in Terminal, then ask Claude Code about your meetings. It can read notes and transcripts, never audio, and can't change anything. See the README for Claude Desktop."
+            Text(installed ? "AI apps can then list, search and read your notes and transcripts. Never audio, and they can't change anything. Commands go in Terminal; the JSON goes in the app's MCP settings."
                            : "Run bash install.sh again to install the MCP server.")
                 .font(.caption).foregroundStyle(.secondary)
-            if installed {
-                Text(command).font(.system(.caption, design: .monospaced)).textSelection(.enabled)
-            }
         }
+    }
+
+    private func copy(_ text: String, _ what: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+        copied = what
     }
 }
 

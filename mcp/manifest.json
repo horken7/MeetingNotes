@@ -1,0 +1,29 @@
+{
+  "manifest_version": "0.3",
+  "name": "meeting-notes",
+  "display_name": "Meeting Notes",
+  "version": "1.0.0",
+  "description": "Read-only access to the meetings recorded by the Meeting Notes app: list, search and read notes and transcripts.",
+  "long_description": "Lets Claude look up your meetings from the Meeting Notes Mac app. It reads meta.json, notes.md and transcript.md in your meetings folder (the one set in the app's Settings), never audio files, and can't change or delete anything.",
+  "author": { "name": "Meeting Notes", "url": "https://github.com/horken7/MeetingNotes" },
+  "homepage": "https://github.com/horken7/MeetingNotes",
+  "repository": { "type": "git", "url": "https://github.com/horken7/MeetingNotes" },
+  "license": "MIT",
+  "icon": "icon.png",
+  "server": {
+    "type": "binary",
+    "entry_point": "server/launch.sh",
+    "mcp_config": {
+      "command": "/bin/sh",
+      "args": ["${__dirname}/server/launch.sh"]
+    }
+  },
+  "tools": [
+    { "name": "list_meetings", "description": "List recorded meetings, newest first, with id, title, date, duration, status and call app." },
+    { "name": "search_meetings", "description": "Case-insensitive text search across meeting titles, notes and transcripts, with snippets." },
+    { "name": "get_notes", "description": "The meeting notes (summary, decisions, action items, open questions, key points) for a meeting." },
+    { "name": "get_transcript", "description": "The full timestamped transcript for a meeting." }
+  ],
+  "keywords": ["meetings", "notes", "transcripts"],
+  "compatibility": { "platforms": ["darwin"] }
+}

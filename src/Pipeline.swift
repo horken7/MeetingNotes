@@ -22,6 +22,7 @@ enum Tools {
     static var vadModel: URL { dataDir.appendingPathComponent("ggml-silero-v5.1.2.bin") }
     static var modelInstalled: Bool { FileManager.default.fileExists(atPath: model.path) }
     static var mcpServer: URL { dataDir.appendingPathComponent("bin/meetingnotes-mcp") }
+    static var mcpExtension: URL { dataDir.appendingPathComponent("MeetingNotes.mcpb") }   // Claude Desktop extension
 
     static func find(_ name: String, preferred: String? = nil) -> String? {
         var candidates: [String] = []

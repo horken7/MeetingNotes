@@ -159,6 +159,11 @@ PLIST
   fi
 ) || true
 
+# Claude Desktop extension for the MCP server: open it (or use Settings > Setup) to add it to Claude Desktop.
+sips -z 512 512 "$BUILD/icon.png" --out "$BUILD/icon-512.png" >/dev/null 2>&1 || true
+bash "$HERE/mcp/pack.sh" "$DATA/MeetingNotes.mcpb" "$DATA/bin/meetingnotes-mcp" "$BUILD/icon-512.png" \
+  || fail "Packing the Claude Desktop extension failed."
+
 SIGN_IDENTITY="${SIGN_IDENTITY:--}"
 if [[ "$SIGN_IDENTITY" == "-" ]]; then
   codesign --force --sign - --identifier "$BUNDLE_ID" "$APP" >/dev/null 2>&1 \

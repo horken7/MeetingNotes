@@ -119,22 +119,26 @@ format, and **Regenerate notes** applies a new format to an existing meeting.
 Meetings are saved in `Meetings/` inside this folder (ignored by git). Change the folder, your name, language,
 automatic start/stop, open at login and whether audio is kept in **Settings**.
 
-## Ask Claude about your meetings (MCP)
+## Ask Claude and other AI apps about your meetings (MCP)
 
 The installer also builds a small, read-only [MCP](https://modelcontextprotocol.io) server at
-`~/.meetnotes/bin/meetingnotes-mcp`, so Claude Code, Claude Desktop and other MCP clients can look up your meetings.
+`~/.meetnotes/bin/meetingnotes-mcp`, so Claude Desktop, Claude Code and other MCP clients can look up your meetings.
 It reads `meta.json`, `notes.md` and `transcript.md` in your meetings folder (the one set in Settings), never
 audio files, and can't change or delete anything. It runs only when a client starts it, on your Mac.
 
-Claude Code (**Settings > Setup** has a button that copies this command):
+**Claude Desktop:** in Meeting Notes, open **Settings > Setup** and press **Add to Claude Desktop** (or double-click
+`~/.meetnotes/MeetingNotes.mcpb`). Claude Desktop shows the extension; press **Install**. It runs the server that
+`install.sh` builds, so later updates need no reinstall of the extension.
 
-```bash
-claude mcp add meeting-notes -- ~/.meetnotes/bin/meetingnotes-mcp
-```
+**Other apps:** the **Other apps** menu next to it copies the command or config for each of these (replace `YOU` below
+with your user name):
 
-Add `--scope user` to use it in every folder, not just the current project. Claude Desktop: open
-**Settings > Developer > Edit Config** and add the server to `claude_desktop_config.json` (use your full home path),
-then restart Claude Desktop:
+| App | How to add it |
+|---|---|
+| Claude Code | `claude mcp add --scope user meeting-notes -- ~/.meetnotes/bin/meetingnotes-mcp` |
+| Codex | `codex mcp add meeting-notes -- ~/.meetnotes/bin/meetingnotes-mcp` |
+| VS Code (Copilot) | `code --add-mcp '{"name":"meeting-notes","command":"/Users/YOU/.meetnotes/bin/meetingnotes-mcp"}'` |
+| Cursor, LM Studio, Windsurf, Gemini CLI and most others | add the JSON below to their MCP config (`~/.cursor/mcp.json`, LM Studio's `mcp.json`, `~/.gemini/settings.json`, …) |
 
 ```json
 {
@@ -145,6 +149,8 @@ then restart Claude Desktop:
   }
 }
 ```
+
+ChatGPT's apps only connect to remote (internet) MCP servers, so they can't use this local one.
 
 Then ask things like "What did we decide in last week's sync?" or "Find meetings where we talked about the budget".
 
@@ -171,6 +177,7 @@ like any other text you share with it.
 | `src/Pipeline.swift` | `afconvert` to 16 kHz WAV, `whisper-cli` transcription, transcript merge, notes via `claude -p` or `codex exec` |
 | `src/Views.swift` | SwiftUI views, Markdown rendering, settings, the meeting prompt |
 | `mcp/main.swift` | Read-only MCP server (stdio, JSON-RPC) for Claude and other MCP clients |
+| `mcp/manifest.json`, `mcp/pack.sh` | Packs the server as a Claude Desktop extension (`.mcpb`) |
 
 Claude Code is run with `ANTHROPIC_API_KEY` removed from its environment, so it always uses your Claude
 subscription rather than API billing. Codex uses its existing CLI authentication and default model;
