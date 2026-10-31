@@ -258,7 +258,7 @@ func testNotesProviders() async throws {
     try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fake.path)
     defaults.set(fake.path, forKey: Keys.claudePath)
     defaults.set(fake.path, forKey: Keys.codexPath)
-    for provider in NotesProvider.allCases {
+    for provider in [NotesProvider.claude, .codex] {
         let notes = try await Pipeline.summarize(transcript: "Synthetic transcript",
             meta: Meta(title: "Synthetic sync"), myName: "Test", folder: dir, provider: provider)
         expectEqual(notes, "## Summary\nSynthetic notes")
@@ -412,6 +412,152 @@ func testMCPServer() throws {
     expectEqual((replies[10]["error"] as? [String: Any])?["code"] as? Int, -32700)
 }
 
+// Stands in for the Ollama server: records each request and answers with `respond`.
+final class MockOllama: URLProtocol {
+    nonisolated(unsafe) static var requests: [(path: String, body: [String: Any])] = []
+    nonisolated(unsafe) static var respond: (String, [String: Any]) -> (Int, String) = { _, _ in (500, "") }
+
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        var data = request.httpBody ?? Data()
+        if let stream = request.httpBodyStream {   // URLSession moves the body into a stream
+            stream.open()
+            var buffer = [UInt8](repeating: 0, count: 65_536)
+            while stream.hasBytesAvailable {
+                let n = stream.read(&buffer, maxLength: buffer.count)
+                if n <= 0 { break }
+                data.append(buffer, count: n)
+            }
+            stream.close()
+        }
+        let path = request.url?.path ?? ""
+        let body = ((try? JSONSerialization.jsonObject(with: data)) as? [String: Any]) ?? [:]
+        MockOllama.requests.append((path, body))
+        let (status, reply) = MockOllama.respond(path, body)
+        let response = HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil, headerFields: nil)!
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: Data(reply.utf8))
+        client?.urlProtocolDidFinishLoading(self)
+    }
+    override func stopLoading() {}
+}
+
+func testOllamaRequest() {
+    let body = Ollama.chatBody(model: "qwen3:8b", prompt: "PROMPT", transcript: "[0:00] **Ana:** Hej.", cut: false)
+    expectEqual(body["model"] as? String, "qwen3:8b")
+    expectEqual(body["stream"] as? Bool, false)
+    expectEqual(body["think"] as? Bool, false)
+    let messages = body["messages"] as? [[String: String]] ?? []
+    expectEqual(messages.map { $0["role"] ?? "" }, ["system", "user"])
+    expectEqual(messages.first?["content"], "PROMPT")
+    expect(messages.last?["content"]?.hasSuffix("<transcript>\n[0:00] **Ana:** Hej.\n</transcript>") == true, "transcript is sent as data")
+    expectEqual((body["options"] as? [String: Int])?["num_ctx"], 8_192)
+    expect(Ollama.chatBody(model: "m", prompt: "p", transcript: "x", cut: false, skipThinking: false)["think"] == nil, "think can be left out")
+
+    // An hour of talk (~60k characters) gets a window that holds all of it.
+    let hour = String(repeating: "[12:34] **Others:** Det här är en mening om budgeten.\n\n", count: 1_100)
+    expect(Ollama.contextSize(hour) >= Ollama.estimatedTokens(hour) + Ollama.reserve, "window fits an hour")
+    expect(Ollama.contextSize(hour) <= Ollama.maxContext, "window is capped")
+    expectEqual(Ollama.truncated(hour), nil)
+    let long = String(repeating: "[1:02:05] **Others:** Ett långt möte.\n\n", count: 4_000)
+    let cut = Ollama.truncated(long) ?? ""
+    expect(!cut.isEmpty && cut.count <= (Ollama.maxContext - Ollama.reserve) * 5 / 2, "long transcript is cut to fit")
+    expect(cut.hasSuffix("Ett långt möte."), "cut at a whole turn")
+    expectEqual(Ollama.lastTimestamp(cut), "1:02:05")
+    expectEqual(Ollama.lastTimestamp("[0:10] a\n\n[3:07] b"), "3:07")
+
+    expectEqual(Ollama.language(of: "[0:00] **Ana:** Hej allihop, idag ska vi bestämma budgeten för lanseringen i mars och vem som gör vad."), "Swedish")
+    expectEqual(Ollama.language(of: "[0:00] **Ana:** Hej alle sammen. I dag skal vi tale om flytningen til det nye kontor, og hvem der gør hvad."), "Danish")
+    expectEqual(Ollama.language(of: ""), nil)
+    let sv = Ollama.chatBody(model: "m", prompt: "p", transcript: "t", cut: false, language: "Swedish", useLanguage: true)
+    expect((sv["messages"] as? [[String: String]])?.last?["content"]?.hasSuffix("</transcript>\n\nThe transcript is in Swedish, so write the notes in Swedish, headings included.") == true, "language rule")
+    let fact = Ollama.chatBody(model: "m", prompt: "p", transcript: "t", cut: false, language: "Swedish")
+    expect((fact["messages"] as? [[String: String]])?.last?["content"]?.hasSuffix("</transcript>\n\nThe transcript is in Swedish.") == true, "custom instructions decide the language")
+
+    expectEqual(Ollama.endpoint("http://localhost:11434/", "/api/chat")?.absoluteString, "http://localhost:11434/api/chat")
+    expectEqual(Ollama.endpoint("localhost:11434", "/api/chat"), nil)
+    expect(Ollama.hasModel(["qwen3:latest"], "qwen3"), "untagged name means :latest")
+    expect(Ollama.hasModel(["qwen3:8b"], "qwen3:8b"), "exact tag")
+    expect(!Ollama.hasModel(["qwen3:4b"], "qwen3:8b"), "other tag doesn't count")
+}
+
+func testOllamaProvider() async throws {
+    let d = UserDefaults.standard
+    let keys = [Keys.ollamaModel, Keys.ollamaURL, Keys.notesProvider]
+    let saved = keys.map { d.object(forKey: $0) }
+    let realSession = Ollama.session
+    defer {
+        Ollama.session = realSession
+        for (key, value) in zip(keys, saved) {
+            if let value { d.set(value, forKey: key) } else { d.removeObject(forKey: key) }
+        }
+    }
+    d.set("ollama", forKey: Keys.notesProvider)
+    expectEqual(SettingsSnapshot.current().notesProvider, .ollama)
+    d.set("test-model:1b", forKey: Keys.ollamaModel)
+    d.set("http://127.0.0.1:9/", forKey: Keys.ollamaURL)
+    let config = URLSessionConfiguration.ephemeral
+    config.protocolClasses = [MockOllama.self]
+    Ollama.session = URLSession(configuration: config)
+
+    let meta = Meta(title: "Synthetic sync")
+    func summarize() async throws -> String {
+        try await Pipeline.summarize(transcript: "Synthetic transcript", meta: meta, myName: "Test",
+                                     folder: FileManager.default.temporaryDirectory, provider: .ollama)
+    }
+
+    MockOllama.requests = []
+    MockOllama.respond = { _, _ in (200, #"{"message":{"role":"assistant","content":"<think>\n</think>\n\n## Summary\nLocal notes\n"},"done":true}"#) }
+    expectEqual(try await summarize(), "## Summary\nLocal notes")
+    expectEqual(MockOllama.requests.count, 1)
+    let sent = MockOllama.requests.first
+    expectEqual(sent?.path, "/api/chat")
+    expectEqual(sent?.body["model"] as? String, "test-model:1b")
+    let messages = sent?.body["messages"] as? [[String: String]] ?? []
+    expectEqual(messages.first?["content"], Pipeline.notesPrompt(meta: meta, myName: "Test"))
+    expect(messages.last?["content"]?.contains("<transcript>\nSynthetic transcript\n</transcript>") == true, "transcript sent")
+
+    // A server that rejects `think` is asked again without it.
+    MockOllama.requests = []
+    MockOllama.respond = { _, body in
+        body["think"] == nil ? (200, #"{"message":{"content":"Notes"}}"#) : (400, #"{"error":"\"test-model:1b\" does not support thinking"}"#)
+    }
+    expectEqual(try await summarize(), "Notes")
+    expectEqual(MockOllama.requests.count, 2)
+
+    for (status, reply, detail) in [
+        (404, #"{"error":"model \"test-model:1b\" not found, try pulling it first"}"#, "ollama pull test-model:1b"),
+        (500, #"{"error":"out of memory"}"#, "out of memory"),
+        (200, #"{"message":{"content":"  "}}"#, "returned no notes"),
+    ] {
+        MockOllama.respond = { _, _ in (status, reply) }
+        do {
+            _ = try await summarize()
+            expect(false, "HTTP \(status) must throw")
+        } catch {
+            expect(error.localizedDescription.contains(detail), "error explains the fix: \(error.localizedDescription)")
+        }
+    }
+
+    MockOllama.respond = { _, _ in (200, #"{"models":[{"name":"test-model:1b"},{"name":"other:latest"}]}"#) }
+    expectEqual(await Ollama.status(model: "test-model:1b", base: Ollama.baseURL), .ready)
+    expectEqual(await Ollama.status(model: "qwen3:8b", base: Ollama.baseURL), .modelMissing)
+    expectEqual(MockOllama.requests.last?.path, "/api/tags")
+
+    // Nothing listening: a clear "not running" message, not a raw network error.
+    Ollama.session = realSession
+    d.set("http://127.0.0.1:1", forKey: Keys.ollamaURL)
+    do {
+        _ = try await summarize()
+        expect(false, "unreachable server must throw")
+    } catch {
+        expect(error.localizedDescription.contains("Ollama isn't running at http://127.0.0.1:1"), "not running: \(error.localizedDescription)")
+        expect(error.localizedDescription.contains("press Retry"), "says the transcript is kept")
+    }
+    expectEqual(await Ollama.status(model: "qwen3:8b", base: "http://127.0.0.1:1"), .notRunning)
+}
+
 @main
 struct TestMain {
     static func main() async {
@@ -432,6 +578,8 @@ struct TestMain {
         do { try await testNotesProviders() } catch { expect(false, "providers threw: \(error)") }
         do { try await testNotesInstructions() } catch { expect(false, "instructions threw: \(error)") }
         do { try testMCPServer() } catch { expect(false, "MCP server threw: \(error)") }
+        testOllamaRequest()
+        do { try await testOllamaProvider() } catch { expect(false, "ollama threw: \(error)") }
         print("\(checks - failures)/\(checks) checks passed")
         exit(failures == 0 ? 0 : 1)
     }

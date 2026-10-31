@@ -1,7 +1,7 @@
 #!/bin/bash
 # Meeting Notes installer
 # Builds and installs a Mac app that records calls, transcribes them on your Mac
-# with whisper.cpp and writes notes with Claude Code or Codex (OpenAI).
+# with whisper.cpp and writes notes with Claude Code, Codex (OpenAI) or a local model (Ollama).
 # Run from the MeetingNotes folder:  bash install.sh
 # Optional: SIGN_IDENTITY="Apple Development: Your Name (TEAMID)" bash install.sh
 #   signs with a code-signing certificate from your keychain instead of ad hoc (see README).
@@ -16,6 +16,8 @@ SRC="$HERE/src"
 DATA="$HOME/.meetnotes"
 BUILD="$DATA/build"
 MODEL="$DATA/ggml-large-v3-turbo.bin"
+OLLAMA_MODEL="gemma3:12b"   # keep in sync with Ollama.defaultModel in src/Pipeline.swift
+OLLAMA_URL="http://localhost:11434"
 VAD="$DATA/ggml-silero-v5.1.2.bin"
 export PATH="/opt/homebrew/bin:/usr/local/bin:$HOME/.local/bin:$PATH"
 
@@ -26,10 +28,11 @@ fail() { printf '\n\033[1;31mError:\033[0m %s\n' "$*" >&2; exit 1; }
 # Preserve the selected provider on reinstall; Claude remains the default.
 PROVIDER="$(defaults read "$BUNDLE_ID" notesProvider 2>/dev/null || echo claude)"
 if [[ $# -gt 0 ]]; then
-  [[ $# -eq 2 && "$1" == "--provider" ]] || fail "Usage: bash install.sh [--provider claude|codex]"
+  [[ $# -eq 2 && "$1" == "--provider" ]] || fail "Usage: bash install.sh [--provider claude|codex|ollama]"
   PROVIDER="$2"
 fi
-[[ "$PROVIDER" == "claude" || "$PROVIDER" == "codex" ]] || fail "Provider must be claude or codex."
+[[ "$PROVIDER" == "local" ]] && PROVIDER="ollama"
+[[ "$PROVIDER" == "claude" || "$PROVIDER" == "codex" || "$PROVIDER" == "ollama" ]] || fail "Provider must be claude, codex or ollama."
 
 # ---------------------------------------------------------------------------
 step "Checking your Mac"
@@ -57,6 +60,9 @@ if [[ -z "$PROVIDER_EXE" ]]; then
   if [[ "$PROVIDER" == "claude" ]]; then
     curl -fsSL https://claude.ai/install.sh | bash
     PROVIDER_EXE="$HOME/.local/bin/claude"
+  elif [[ "$PROVIDER" == "ollama" ]]; then
+    brew install ollama
+    PROVIDER_EXE="$(command -v ollama || true)"
   else
     brew install --cask codex
     PROVIDER_EXE="$(command -v codex || true)"
@@ -71,6 +77,26 @@ if [[ "$PROVIDER" == "claude" ]]; then
     PROVIDER_OK=1
   else
     PROVIDER_OK=0
+  fi
+elif [[ "$PROVIDER" == "ollama" ]]; then
+  if ! curl -fsS -m 3 "$OLLAMA_URL/api/tags" >/dev/null 2>&1; then
+    note "Starting Ollama..."
+    if [[ -d /Applications/Ollama.app ]]; then
+      open -a Ollama
+    else
+      brew services start ollama >/dev/null || true
+    fi
+    for _ in $(seq 1 30); do
+      curl -fsS -m 2 "$OLLAMA_URL/api/tags" >/dev/null 2>&1 && break
+      sleep 1
+    done
+  fi
+  PROVIDER_OK=0
+  if curl -fsS -m 3 "$OLLAMA_URL/api/tags" >/dev/null 2>&1; then
+    note "Downloading the local notes model $OLLAMA_MODEL (about 8 GB, once)..."
+    "$PROVIDER_EXE" pull "$OLLAMA_MODEL" && PROVIDER_OK=1
+  else
+    note "Ollama didn't start. Start it with: brew services start ollama"
   fi
 else
   if "$PROVIDER_EXE" login status >/dev/null 2>&1; then
@@ -137,6 +163,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>LSMinimumSystemVersion</key><string>15.0</string>
   <key>LSApplicationCategoryType</key><string>public.app-category.productivity</string>
   <key>NSHighResolutionCapable</key><true/>
+  <key>NSAppTransportSecurity</key><dict><key>NSAllowsLocalNetworking</key><true/></dict>
   <key>NSPrincipalClass</key><string>NSApplication</string>
   <key>NSAppleEventsUsageDescription</key><string>Meeting Notes reads the call tab's title in your browser to name the meeting.</string>
   <key>NSMicrophoneUsageDescription</key><string>Meeting Notes records your side of the call to transcribe it.</string>
@@ -185,7 +212,7 @@ pkill -x "$EXEC" 2>/dev/null || true
 sleep 1
 rm -rf "$DEST/$APP_NAME.app"
 cp -R "$APP" "$DEST/"
-defaults write "$BUNDLE_ID" "${PROVIDER}Path" "$PROVIDER_EXE"
+[[ "$PROVIDER" == "ollama" ]] || defaults write "$BUNDLE_ID" "${PROVIDER}Path" "$PROVIDER_EXE"
 defaults write "$BUNDLE_ID" notesProvider "$PROVIDER"
 # Save meetings next to the app's source in a Meetings folder, unless another folder was chosen in Settings.
 if ! defaults read "$BUNDLE_ID" outputDir >/dev/null 2>&1; then
@@ -216,6 +243,8 @@ cat <<'MSG'
     "Start meeting" in the window or the menu bar icon.
     Notes are saved in the Meetings folder next to install.sh.
 MSG
-if [[ "$PROVIDER_OK" == "0" ]]; then
+if [[ "$PROVIDER_OK" == "0" && "$PROVIDER" == "ollama" ]]; then
+  note "Still to do: start Ollama (brew services start ollama) and run: ollama pull $OLLAMA_MODEL"
+elif [[ "$PROVIDER_OK" == "0" ]]; then
   note "Still to do: run $PROVIDER in Terminal and log in before generating notes."
 fi

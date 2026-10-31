@@ -92,3 +92,11 @@ A short list: what passed, what you fixed (file + one line each), and anything s
 - Use a synthetic transcript to regenerate notes with each authenticated CLI. Confirm Markdown output and provider-specific errors when logged out.
 - Codex uses existing CLI authentication; verify the intended ChatGPT/API account before a live run.
 - Verify Settings scrolls to every section at the standard window size.
+
+### Local model (Ollama)
+- `bash install.sh --provider ollama` on a Mac without Ollama: installs it with Homebrew, starts it, pulls `gemma3:12b`; Claude and Codex are not required.
+- Settings > Notes: pick **Local model (Ollama)**, check the model and address fields and that the caption says nothing leaves the Mac.
+- Settings > Setup: green "Local model ... ready". Stop Ollama (`brew services stop ollama`): shows "Ollama not running" with the start command. Set the model to one not pulled: shows the `ollama pull` command. **Check again** updates it.
+- Regenerate notes for a synthetic Swedish and a Danish meeting: Markdown notes in the meeting's language (headings too), no `<think>` text. Repeat with Ollama stopped and with a missing model: the meeting fails with the fix in the error, and Retry works after fixing.
+- With Wi-Fi off, notes are still written.
+- A long meeting (60+ minutes): all of it is summarized; past ~70 minutes the notes end with a line saying up to which time they cover.

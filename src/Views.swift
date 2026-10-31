@@ -561,6 +561,9 @@ struct SettingsView: View {
     @AppStorage(Keys.notesProvider) private var notesProvider = NotesProvider.claude.rawValue
     @AppStorage(Keys.claudePath) private var claudePath = ""
     @AppStorage(Keys.codexPath) private var codexPath = ""
+    @AppStorage(Keys.ollamaModel) private var ollamaModel = Ollama.defaultModel
+    @AppStorage(Keys.ollamaURL) private var ollamaURL = Ollama.defaultURL
+    @State private var ollamaStatus = Ollama.Status.checking
     @AppStorage(Keys.notesInstructions) private var instructions = Pipeline.defaultInstructions
 
     private var provider: NotesProvider { NotesProvider(rawValue: notesProvider) ?? .claude }
@@ -586,13 +589,19 @@ struct SettingsView: View {
                             Text(option.label).tag(option.rawValue)
                         }
                     }
-                    if provider == .claude {
+                    switch provider {
+                    case .claude:
                         TextField("Claude executable (optional)", text: $claudePath)
-                    } else {
+                    case .codex:
                         TextField("Codex executable (optional)", text: $codexPath)
+                    case .ollama:
+                        TextField("Model", text: $ollamaModel)
+                        TextField("Ollama address", text: $ollamaURL)
                     }
                     Text(provider.loginHint).font(.caption).foregroundStyle(.secondary)
-                    Text("The text transcript is sent to the selected provider. Audio stays on your Mac.")
+                    Text(provider == .ollama
+                         ? "The notes are written on your Mac by the local model. Nothing leaves the Mac (unless the address points to another computer)."
+                         : "The text transcript is sent to the selected provider. Audio stays on your Mac.")
                         .font(.caption).foregroundStyle(.secondary)
                     VStack(alignment: .leading, spacing: 6) {
                         Text("How the notes should look")
@@ -648,7 +657,11 @@ struct SettingsView: View {
                 Section("Setup") {
                     check("Whisper (transcription on your Mac)", Tools.whisper != nil)
                     check("Speech model", Tools.modelInstalled)
-                    check("\(provider.label) installed", provider.executable != nil)
+                    if provider == .ollama {
+                        ollamaCheck
+                    } else {
+                        check("\(provider.label) installed", provider.executable != nil)
+                    }
                     HStack {
                         Button("Microphone permission…") { openPrivacy("Privacy_Microphone") }
                         Button("System Audio permission…") { openPrivacy("Privacy_AudioCapture") }
@@ -667,6 +680,39 @@ struct SettingsView: View {
         }
         .frame(width: 560, height: 720)
         .onChange(of: outputDir) { _, _ in model.reload() }
+        .task(id: "\(notesProvider) \(ollamaModel) \(ollamaURL)") {
+            guard provider == .ollama else { return }
+            ollamaStatus = .checking
+            try? await Task.sleep(for: .milliseconds(400))   // wait for typing to pause
+            guard !Task.isCancelled else { return }
+            ollamaStatus = await Ollama.status(model: Ollama.model, base: Ollama.baseURL)
+        }
+    }
+
+    @ViewBuilder private var ollamaCheck: some View {
+        switch ollamaStatus {
+        case .checking:
+            HStack {
+                ProgressView().controlSize(.small)
+                Text("Checking Ollama…")
+            }
+        case .ready:
+            check("Local model \(Ollama.model) ready", true)
+        case .notRunning, .modelMissing:
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    check(ollamaStatus == .notRunning ? "Ollama not running" : "Model \(Ollama.model) not downloaded", false)
+                    Spacer()
+                    Button("Check again") {
+                        Task { ollamaStatus = await Ollama.status(model: Ollama.model, base: Ollama.baseURL) }
+                    }
+                }
+                Text(ollamaStatus == .notRunning
+                     ? Ollama.notRunningMessage(Ollama.baseURL)
+                     : Ollama.missingModelMessage(Ollama.model))
+                    .font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
+            }
+        }
     }
 
     private func check(_ label: String, _ ok: Bool) -> some View {
