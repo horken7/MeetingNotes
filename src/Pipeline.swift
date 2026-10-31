@@ -152,7 +152,7 @@ enum Pipeline {
                     if speaker(of: track) == "me" { me += segments } else { others += segments }
                 }
                 if me.isEmpty && others.isEmpty {
-                    throw PipelineError(message: "No speech was captured. Check Microphone and Screen & System Audio Recording permissions in Settings.")
+                    throw PipelineError(message: "No speech was captured. Check the Microphone and System Audio Recording permissions in Settings.")
                 }
                 transcript = merge(me: me, others: others, myName: settings.myName)
                 try "# \(meta.title): transcript\n\n\(transcript)\n".write(to: transcriptURL, atomically: true, encoding: .utf8)

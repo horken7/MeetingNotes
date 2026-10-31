@@ -6,7 +6,7 @@ You are verifying a macOS app that has been written but **never compiled or run*
 
 A native SwiftUI menu bar + window app ("Meeting Notes", bundle id `se.frinkle.meetingnotes`) that:
 
-1. Records a video call as two audio tracks: the microphone (`me.caf`) and system audio (`others.caf`), both via **ScreenCaptureKit** (`captureMicrophone` + `capturesAudio`, macOS 15+). No BlackHole or virtual driver.
+1. Records a video call as two audio tracks: the microphone (`me.caf`) and system audio (`others.caf`), the mic via **AVAudioEngine** and system audio via a **Core Audio process tap** (`CATapDescription` + `AudioHardwareCreateProcessTap` in a private aggregate device, macOS 14.4+, excluding the app's own sound). No BlackHole, virtual driver or Screen Recording permission.
 2. **Auto-detects calls**: polls Core Audio process objects every 2 s (`kAudioHardwarePropertyProcessObjectList` / `kAudioProcessPropertyIsRunningInput`, macOS 14.4+) to see which app has the mic open. After 4 s it shows a floating "Meeting detected" panel (Start notes / Not now / Never for this app), or starts automatically if that setting is on. Auto-stops 15 s after the triggering app releases the mic.
 3. On stop: converts tracks to 16 kHz WAV with `afconvert`, transcribes each locally with **whisper.cpp** (`whisper-cli`, model `~/.meetnotes/ggml-large-v3-turbo.bin`, optional Silero VAD `~/.meetnotes/ggml-silero-v5.1.2.bin`), merges them into a timestamped transcript labelled with the user's name vs "Others" (using each track's start offset).
 4. Writes notes by piping the transcript to **Claude Code**: `claude -p "<prompt>"` with `ANTHROPIC_API_KEY` removed from the environment so it uses the Claude subscription, not API billing.
@@ -22,7 +22,7 @@ Output per meeting: `<repo>/Meetings/<yyyy-MM-dd HHmm> <title>/` (changeable in 
 | `makeicon.swift` | Renders the app icon PNG (cosmetic; failure is ignored) |
 | `src/App.swift` | `@main` app, `Window` + `MenuBarExtra` scenes, AppDelegate (keeps running when window closes; finishes recording safely on quit) |
 | `src/Model.swift` | Settings keys/defaults, `Meta`/`Meeting`, `Store` (folder I/O), `AppModel` (start/stop, retry, rename, trash, detection tick loop) |
-| `src/Recorder.swift` | ScreenCaptureKit stream, writes `.caf` per track, returns track start offsets |
+| `src/Recorder.swift` | AVAudioEngine mic + Core Audio process tap, writes `.caf` per track, returns track start offsets |
 | `src/MicMonitor.swift` | Which processes are using the mic, helper-process grouping, system-process filtering |
 | `src/Pipeline.swift` | Tool discovery (GUI apps lack shell PATH), process runner, afconvert, whisper, transcript merge, Claude summary |
 | `src/Views.swift` | All SwiftUI views, Markdown renderer, settings, floating prompt panel |
@@ -41,7 +41,7 @@ Output per meeting: `<repo>/Meetings/<yyyy-MM-dd HHmm> <title>/` (changeable in 
 - In the app's Settings, all three dependency checks are green.
 
 ### 3. Permissions
-- On first launch the app should request Microphone and Screen & System Audio Recording. Confirm both prompts appear and that the app works after granting (it may need a relaunch after the screen recording grant).
+- On first launch the app should request Microphone; the first recording should request System Audio Recording (listed under Screen & System Audio Recording > System Audio Recording Only). Confirm both prompts appear, that Screen Recording is never requested, and that `others.caf` has sound after granting.
 - Confirm denying permissions produces a clear banner rather than a crash or silent failure.
 
 ### 4. Recording + transcript

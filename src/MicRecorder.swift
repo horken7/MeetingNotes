@@ -10,7 +10,7 @@ protocol AudioCapture: AnyObject {
 extension Recorder: AudioCapture {}
 
 /// Records only the microphone to `me.caf`. Used when the system audio capture can't run
-/// (e.g. ScreenCaptureKit finds no display, or Screen Recording permission is off), so the
+/// (e.g. the Core Audio tap or its aggregate device can't be created), so the
 /// meeting still gets recorded in one track instead of stopping.
 final class MicRecorder: AudioCapture {
     private let recorder: AVAudioRecorder

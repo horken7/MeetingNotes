@@ -140,6 +140,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>NSPrincipalClass</key><string>NSApplication</string>
   <key>NSAppleEventsUsageDescription</key><string>Meeting Notes reads the call tab's title in your browser to name the meeting.</string>
   <key>NSMicrophoneUsageDescription</key><string>Meeting Notes records your side of the call to transcribe it.</string>
+  <key>NSAudioCaptureUsageDescription</key><string>Meeting Notes records the other people on the call (the sound your Mac plays) to transcribe it.</string>
 </dict>
 </plist>
 PLIST
@@ -189,6 +190,8 @@ fi
 # With a signing identity the signature stays the same and the permissions are kept.
 if [[ "$SIGN_IDENTITY" == "-" ]]; then
   tccutil reset Microphone "$BUNDLE_ID" >/dev/null 2>&1 || true
+  tccutil reset AudioCapture "$BUNDLE_ID" >/dev/null 2>&1 || true
+  # Older versions needed Screen Recording; clear that grant too.
   tccutil reset ScreenCapture "$BUNDLE_ID" >/dev/null 2>&1 || true
 fi
 note "Installed to $DEST/$APP_NAME.app"
@@ -201,9 +204,8 @@ cat <<'MSG'
 
     First time only:
       1. Allow Microphone access when asked.
-      2. Allow Screen & System Audio Recording when asked (this is how the app
-         hears the other people on the call; no video is saved). macOS may ask
-         you to quit and reopen the app after granting it.
+      2. When your first recording starts, allow System Audio Recording (this is
+         how the app hears the other people on the call; the screen is not recorded).
 
     Then join a call: a notification (or a small popup) offers to start notes. Or press
     "Start meeting" in the window or the menu bar icon.

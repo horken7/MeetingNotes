@@ -1,7 +1,6 @@
 import Foundation
 import AppKit
 import AVFoundation
-import CoreGraphics
 import UserNotifications
 
 // MARK: Settings
@@ -270,10 +269,8 @@ final class AppModel: ObservableObject {
         }
         Task {
             // Ask for permissions up front so the prompts don't appear in the middle of a call.
+            // System Audio Recording is asked for by macOS when the first recording starts.
             _ = await AVCaptureDevice.requestAccess(for: .audio)
-            if !CGPreflightScreenCaptureAccess() {
-                _ = CGRequestScreenCaptureAccess()
-            }
         }
     }
 
@@ -348,13 +345,13 @@ final class AppModel: ObservableObject {
                 // The other people's audio can't be captured: record the microphone alone rather than nothing.
                 guard let mic = startMicOnly(folder) else {
                     try? FileManager.default.removeItem(at: folder)
-                    banner = "Couldn't start recording (\(error.localizedDescription)). Allow Meeting Notes under System Settings > Privacy & Security > Screen & System Audio Recording, then quit and reopen the app."
+                    banner = "Couldn't start recording (\(error.localizedDescription)). Check that Meeting Notes is allowed under System Settings > Privacy & Security > Microphone."
                     reload()
                     return
                 }
                 recorder = mic
                 micOnly = true
-                banner = "Recording only your microphone, because the call audio couldn't be captured (\(error.localizedDescription)). To record the other people too, allow Meeting Notes under System Settings > Privacy & Security > Screen & System Audio Recording, then quit and reopen the app."
+                banner = "Recording only your microphone, because the call audio couldn't be captured (\(error.localizedDescription)). To record the other people too, allow Meeting Notes under System Settings > Privacy & Security > Screen & System Audio Recording > System Audio Recording Only."
             }
             recording = ActiveRecording(folder: folder, title: name, start: now,
                                         triggerKey: trigger?.key, lastSeen: now, lastAudio: now, micOnly: micOnly)
@@ -428,8 +425,7 @@ final class AppModel: ObservableObject {
         return earlier.merging(current.mapValues { $0 + active.segmentStart }) { $1 }
     }
 
-    /// System audio capture stopped mid-meeting (e.g. ScreenCaptureKit lost its display when the lid closed or a
-    /// monitor was unplugged). Keep what was recorded as a segment and carry on: with full capture again if it
+    /// Capture stopped mid-meeting (e.g. the microphone couldn't be restarted after an input device change). Keep what was recorded as a segment and carry on: with full capture again if it
     /// starts, otherwise with the microphone alone. Only if neither works does the recording stop.
     private func recordingFailed(_ message: String, from failed: Recorder?) {
         guard let failed, recorder === failed, let active = recording, !switching else { return }
