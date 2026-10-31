@@ -16,6 +16,8 @@ enum Keys {
     static let ignoredApps = "ignoredApps"
     static let claudePath = "claudePath"
     static let codexPath = "codexPath"
+    static let ollamaModel = "ollamaModel"
+    static let ollamaURL = "ollamaURL"
     static let notesProvider = "notesProvider"
     static let notesInstructions = "notesInstructions"
     static let promptStyle = "promptStyle"     // "notification" or "panel"
@@ -31,6 +33,8 @@ func registerDefaults() {
     let first = NSFullUserName().split(separator: " ").first.map(String.init) ?? "Me"
     UserDefaults.standard.register(defaults: [
         Keys.notesProvider: NotesProvider.claude.rawValue,
+        Keys.ollamaModel: Ollama.defaultModel,
+        Keys.ollamaURL: Ollama.defaultURL,
         Keys.myName: first,
         Keys.language: "auto",
         Keys.autoDetect: true,

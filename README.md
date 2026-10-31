@@ -2,7 +2,8 @@
 
 A small native macOS app that records your video calls, transcribes them **on your Mac** with
 [whisper.cpp](https://github.com/ggml-org/whisper.cpp), and writes structured meeting notes with
-[Claude Code](https://claude.com/claude-code) or [Codex (OpenAI)](https://developers.openai.com/codex/cli/).
+[Claude Code](https://claude.com/claude-code), [Codex (OpenAI)](https://developers.openai.com/codex/cli/) or a local
+model with [Ollama](https://ollama.com).
 
 - **Two tracks, no virtual audio driver.** Your microphone and the call audio are captured separately with
   a Core Audio tap, so the transcript knows who said what (your name vs "Others").
@@ -10,6 +11,7 @@ A small native macOS app that records your video calls, transcribes them **on yo
   using the microphone, a small prompt offers to take notes, and recording stops a few seconds after you leave the call.
 - **Names meetings for you.** In browsers it reads the call tab's title (e.g. "Meet – Weekly sync" becomes "Weekly sync").
 - **Private by default.** Audio never leaves your Mac. Only the text transcript is sent to your selected provider to write the notes.
+  With the local model (Ollama) nothing leaves your Mac at all.
 - **Runs in the background.** It starts at login without a window, lives in the menu bar, and sends a notification
   when the notes for a meeting are ready.
 - **Swedish, Danish and English** (or automatic language detection). Notes are written in the meeting's language.
@@ -36,7 +38,8 @@ Key points), the audio as 16 kHz WAV, and `meta.json`.
 - Xcode command line tools (`xcode-select --install`)
 - [Homebrew](https://brew.sh)
 - A Claude account for Claude Code, or a Codex login (ChatGPT or API authentication)
-  for OpenAI. The installer installs the selected CLI if missing.
+  for OpenAI. The installer installs the selected CLI if missing. The local model needs no account, but about 8 GB of
+  disk and 16 GB of memory.
 - About 2 GB of disk space for the speech model
 
 ## Install
@@ -46,6 +49,7 @@ git clone https://github.com/horken7/MeetingNotes.git
 cd MeetingNotes
 bash install.sh                       # Claude by default
 # or: bash install.sh --provider codex
+# or: bash install.sh --provider ollama   # fully local notes
 ```
 
 The installer:
@@ -62,9 +66,32 @@ meeting name.
 
 Log in once in Terminal: `claude` for Claude Code or `codex login` for Codex.
 Choose **Settings > Notes > Write notes with** to switch providers, including when regenerating notes.
-Install the other CLI before switching (or rerun `bash install.sh --provider claude|codex` with one provider).
+Install the other CLI before switching (or rerun `bash install.sh --provider claude|codex|ollama` with one provider).
 For a custom or npm installation, set the executable's absolute path in Settings. Reinstalling without
 `--provider` preserves your selected provider.
+
+### Local notes with Ollama
+
+Choose **Local model (Ollama)** to write the notes on your Mac: the transcript is sent only to Ollama's server at
+`http://localhost:11434`, so nothing leaves the Mac. `bash install.sh --provider ollama` (or `--provider local`) installs
+Ollama with Homebrew, starts it and pulls the default model. To set it up by hand:
+
+```bash
+brew install ollama
+brew services start ollama
+ollama pull gemma3:12b
+```
+
+Settings > Notes has the model name and the Ollama address; Settings > Setup shows whether Ollama is running and the
+model is downloaded, and how to fix it if not.
+
+The default model is `gemma3:12b` (an 8 GB download, about 8 GB of memory while it runs, so a Mac with 16 GB or more).
+Of the models tried it wrote the best Swedish and Danish notes; `qwen3:8b` (5 GB) often answered in English. Local
+models tend to reply in the language of the instructions, so the app recognizes the transcript's language on the Mac
+and, with the default instructions, asks for notes in that language. The context window is sized to the transcript, up
+to 32k tokens: about 70 minutes of conversation. Longer transcripts are cut at the end, and the notes then say up to
+which time they cover. On an M-series Mac, notes for a short meeting take 10 to 20 seconds and for an hour about 2 to 3
+minutes. Any other model from `ollama list` works too, for example `gemma3:4b` for Macs with 8 GB.
 
 > Each build is signed ad hoc, so macOS asks for the permissions again after every reinstall, and it refuses
 > notification permission. To fix both, sign with a certificate (below).
@@ -174,7 +201,7 @@ like any other text you share with it.
 | `src/Recorder.swift` | Mic (AVAudioEngine) and system audio (Core Audio process tap) capture into two `.caf` files |
 | `src/MicMonitor.swift` | Which apps are using the microphone or playing sound (Core Audio process objects) |
 | `src/CallInfo.swift` | Meeting name from the browser's call tab |
-| `src/Pipeline.swift` | `afconvert` to 16 kHz WAV, `whisper-cli` transcription, transcript merge, notes via `claude -p` or `codex exec` |
+| `src/Pipeline.swift` | `afconvert` to 16 kHz WAV, `whisper-cli` transcription, transcript merge, notes via `claude -p`, `codex exec` or Ollama's `/api/chat` |
 | `src/Views.swift` | SwiftUI views, Markdown rendering, settings, the meeting prompt |
 | `mcp/main.swift` | Read-only MCP server (stdio, JSON-RPC) for Claude and other MCP clients |
 | `mcp/manifest.json`, `mcp/pack.sh` | Packs the server as a Claude Desktop extension (`.mcpb`) |
@@ -184,6 +211,8 @@ subscription rather than API billing. Codex uses its existing CLI authentication
 API-authenticated Codex usage may incur API charges. It runs non-interactively with a read-only sandbox
 in a temporary directory, receives the prompt and transcript through stdin, and returns notes on stdout.
 See [Codex non-interactive mode](https://developers.openai.com/codex/noninteractive).
+The local model is called through Ollama's [chat API](https://github.com/ollama/ollama/blob/main/docs/api.md) without
+streaming, with the same prompt as a system message and the transcript as data, and `num_ctx` sized to the transcript.
 
 ## Development
 
@@ -194,7 +223,7 @@ bash install.sh       # builds and installs the app
 
 The tests are a small runner in `tests/main.swift` (no XCTest needed, so the command line tools are enough). They cover
 the transcript merge, noise filtering, meeting folders and metadata, call-app grouping, meeting title parsing and the
-provider routing, CLI failures and the Claude environment, plus JSON-RPC round trips through the built MCP server. CI runs the same script on GitHub Actions (`macos-15`).
+provider routing, CLI failures, the Ollama request and errors (against a mock server) and the Claude environment, plus JSON-RPC round trips through the built MCP server. CI runs the same script on GitHub Actions (`macos-15`).
 
 To refresh the README screenshots (only this needs Screen Recording; macOS asks for it the first time):
 
