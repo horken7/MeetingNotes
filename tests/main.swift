@@ -158,6 +158,36 @@ func testSearch() {
     expect(Date().timeIntervalSince(start) < 0.5, "searching 500 lines took \(Date().timeIntervalSince(start)) s")
 }
 
+// Capture can fail mid-meeting (#4): earlier segments are kept as me-N/others-N, and a meeting
+// with only the microphone track is still transcribed.
+func testSegmentsAndMicOnly() throws {
+    let fm = FileManager.default
+    let dir = fm.temporaryDirectory.appendingPathComponent("mn-segments-\(UUID().uuidString)")
+    try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+    defer { try? fm.removeItem(at: dir) }
+    func touch(_ f: String) throws { try "x".write(to: dir.appendingPathComponent(f), atomically: true, encoding: .utf8) }
+
+    try touch("me.caf")
+    expectEqual(Pipeline.tracks(in: dir), ["me"])   // mic only: nothing from the call audio
+
+    try touch("others.caf")
+    let kept = Store.closeSegment(dir, number: 1, offsets: ["me": 0.5, "others": 0], start: 0)
+    expectEqual(kept, ["me-1": 0.5, "others-1": 0])
+    expect(!fm.fileExists(atPath: dir.appendingPathComponent("me.caf").path), "segment files are renamed")
+    try touch("me.caf")   // the mic-only segment after the failure
+    let later = Store.closeSegment(dir, number: 2, offsets: ["missing": 1], start: 600)
+    expectEqual(later, [:])
+    try touch("transcript.md")
+    try touch("me.json")
+    try touch("notes-2.wav")
+    expectEqual(Pipeline.tracks(in: dir), ["me", "me-1", "others-1"])
+
+    expectEqual(Pipeline.speaker(of: "me"), "me")
+    expectEqual(Pipeline.speaker(of: "others-12"), "others")
+    expectEqual(Pipeline.speaker(of: "me-x"), nil)
+    expectEqual(Pipeline.speaker(of: "notes"), nil)
+}
+
 func testCallTitles() {
     expectEqual(CallInfo.cleanTitle("Meet – Work RightHub"), "Work RightHub")
     expectEqual(CallInfo.cleanTitle("(2) Meet - Weekly sync"), "Weekly sync")
@@ -386,6 +416,7 @@ struct TestMain {
         do { try testStore() } catch { expect(false, "Store threw: \(error)") }
         do { try testArchiveAudio() } catch { expect(false, "archive threw: \(error)") }
         testSearch()
+        do { try testSegmentsAndMicOnly() } catch { expect(false, "segments threw: \(error)") }
         testCallTitles()
         do { try testNotificationSummary() } catch { expect(false, "notes summary threw: \(error)") }
         testToolsEnvironment()

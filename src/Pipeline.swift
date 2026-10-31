@@ -139,15 +139,18 @@ enum Pipeline {
             } else {
                 Store.update(folder) { $0.status = "transcribing"; $0.error = nil }
                 await onChange()
-                let hasAudio = ["me", "others"].contains { t in
-                    ["caf", "wav"].contains { FileManager.default.fileExists(atPath: folder.appendingPathComponent("\(t).\($0)").path) }
-                }
-                guard hasAudio else {
+                // Any track may be missing, e.g. only "me" when the call audio couldn't be captured.
+                let tracks = tracks(in: folder)
+                guard !tracks.isEmpty else {
                     throw PipelineError(message: "The audio for this meeting wasn't kept, so the transcript can't be redone.")
                 }
                 let lang = meta.lang ?? settings.language
-                let me = try await transcribe(folder: folder, track: "me", offset: meta.offsets?["me"] ?? 0, lang: lang)
-                let others = try await transcribe(folder: folder, track: "others", offset: meta.offsets?["others"] ?? 0, lang: lang)
+                var me: [(Double, String)] = []
+                var others: [(Double, String)] = []
+                for track in tracks {
+                    let segments = try await transcribe(folder: folder, track: track, offset: meta.offsets?[track] ?? 0, lang: lang)
+                    if speaker(of: track) == "me" { me += segments } else { others += segments }
+                }
                 if me.isEmpty && others.isEmpty {
                     throw PipelineError(message: "No speech was captured. Check Microphone and Screen & System Audio Recording permissions in Settings.")
                 }
@@ -162,10 +165,7 @@ enum Pipeline {
             try "# \(current.title)\n\n\(notes)\n".write(to: folder.appendingPathComponent("notes.md"), atomically: true, encoding: .utf8)
 
             if !settings.keepAudio {
-                for track in ["me", "others"] {
-                    try? FileManager.default.removeItem(at: folder.appendingPathComponent("\(track).wav"))
-                    try? FileManager.default.removeItem(at: folder.appendingPathComponent("\(track).caf"))
-                }
+                for f in Store.audioFiles(folder) { try? FileManager.default.removeItem(at: f) }
             }
             Store.update(folder) { $0.status = "done"; $0.error = nil }
         } catch {
@@ -224,6 +224,23 @@ enum Pipeline {
             segments.append((fromMs / 1000 + offset, text))
         }
         return segments
+    }
+
+    /// The recorded tracks: "me" and "others", plus "me-1", "others-1"… for segments from before capture
+    /// was restarted mid-meeting.
+    static func tracks(in folder: URL) -> [String] {
+        Set(Store.audioFiles(folder).map { $0.deletingPathExtension().lastPathComponent })
+            .filter { speaker(of: $0) != nil }
+            .sorted()
+    }
+
+    /// "me" or "others" for a track name, nil for other files.
+    static func speaker(of track: String) -> String? {
+        for s in ["me", "others"] {
+            if track == s { return s }
+            if track.hasPrefix(s + "-"), Int(track.dropFirst(s.count + 1)) != nil { return s }
+        }
+        return nil
     }
 
     static func isNoise(_ t: String) -> Bool {

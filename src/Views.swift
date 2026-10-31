@@ -382,7 +382,9 @@ struct MeetingDetail: View {
             StatusBox {
                 HStack {
                     Circle().fill(Color.red).frame(width: 10, height: 10)
-                    Text("Recording. Press stop when the call ends, or it stops by itself when the call app releases the mic.")
+                    Text(model.recording?.micOnly == true
+                         ? "Recording your microphone only (the call audio couldn't be captured). Press stop when the call ends."
+                         : "Recording. Press stop when the call ends, or it stops by itself when the call app releases the mic.")
                     Spacer()
                     Button("Stop and take notes") { model.stop() }
                         .buttonStyle(.borderedProminent)
