@@ -7,6 +7,9 @@ enum NotesProvider: String, CaseIterable {
     var loginHint: String {
         self == .claude ? "Run `claude` in Terminal once and log in." : "Run `codex login` in Terminal and log in."
     }
+    var reloginHint: String {
+        self == .claude ? "Open Terminal, run `claude`, type /login and sign in." : "Open Terminal and run `codex login`."
+    }
     var executable: String? { self == .claude ? Tools.claude : Tools.codex }
 }
 
@@ -246,6 +249,13 @@ enum Pipeline {
         return lines.joined(separator: "\n\n")
     }
 
+    /// Recognizes "not logged in" / "session expired" failures from Claude Code and Codex.
+    static func isLoginError(_ text: String) -> Bool {
+        let t = text.lowercased()
+        return ["failed to authenticate", "oauth", "/login", "not logged in", "invalid api key",
+                "401 unauthorized", "authentication_error", "please run codex login"].contains { t.contains($0) }
+    }
+
     /// The default "how the notes should look" instructions, editable in Settings.
     static let defaultInstructions = """
     Write the notes in the main language spoken in the meeting (translate the section headings too), as Markdown with these sections:
@@ -297,7 +307,11 @@ enum Pipeline {
         let out = r.out.trimmingCharacters(in: .whitespacesAndNewlines)
         guard r.status == 0, !out.isEmpty else {
             let detail = (r.err.isEmpty ? r.out : r.err).trimmingCharacters(in: .whitespacesAndNewlines)
-            throw PipelineError(message: "\(provider.label) couldn't write the notes. \(detail.isEmpty ? provider.loginHint : String(detail.suffix(400)))")
+            if detail.isEmpty || Pipeline.isLoginError(detail) {
+                // Logged out or expired session: say what to do instead of showing the raw error.
+                throw PipelineError(message: "\(provider.label) is logged out, so the notes weren't written. \(provider.reloginHint) Then press Retry; the transcript is kept.")
+            }
+            throw PipelineError(message: "\(provider.label) couldn't write the notes. \(String(detail.suffix(400)))")
         }
         return out
     }

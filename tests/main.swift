@@ -227,6 +227,13 @@ func testNotesInstructions() async throws {
     expect(p.contains("## Key points (grouped by topic)"), "empty instructions fall back to the default")
 }
 
+func testLoginErrors() {
+    expect(Pipeline.isLoginError("Failed to authenticate: OAuth session expired and could not be refreshed"), "Claude expired session")
+    expect(Pipeline.isLoginError("Invalid API key · Please run /login"), "Claude logged out")
+    expect(Pipeline.isLoginError("ERROR: unexpected status 401 Unauthorized: Missing bearer"), "Codex logged out")
+    expect(!Pipeline.isLoginError("Error: prompt is too long"), "other errors are shown as is")
+}
+
 @main
 struct TestMain {
     static func main() async {
@@ -239,6 +246,7 @@ struct TestMain {
         testCallTitles()
         do { try testNotificationSummary() } catch { expect(false, "notes summary threw: \(error)") }
         testToolsEnvironment()
+        testLoginErrors()
         do { try await testNotesProviders() } catch { expect(false, "providers threw: \(error)") }
         do { try await testNotesInstructions() } catch { expect(false, "instructions threw: \(error)") }
         print("\(checks - failures)/\(checks) checks passed")
