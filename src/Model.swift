@@ -78,6 +78,7 @@ struct Meta: Codable, Hashable {
     var lang: String?
     var offsets: [String: Double]?
     var duration: Double?
+    var audioArchived: Date?   // when the audio files were deleted with "Archive audio files"
 }
 
 struct Meeting: Identifiable, Hashable {
@@ -85,10 +86,13 @@ struct Meeting: Identifiable, Hashable {
     var meta: Meta
     var created: Date
     var status: String
+    var hasAudio = false
 
     var id: String { folder.path }
     var title: String { meta.title }
     var isBusy: Bool { ["recording", "transcribing", "summarizing"].contains(status) }
+    /// The audio is gone (archived, or not kept), so the transcript can't be redone.
+    var isArchived: Bool { !hasAudio && !isBusy }
 }
 
 enum Store {
@@ -133,9 +137,21 @@ enum Store {
             if status.isEmpty {
                 status = fm.fileExists(atPath: dir.appendingPathComponent("notes.md").path) ? "done" : "failed"
             }
-            return Meeting(folder: dir, meta: meta, created: created, status: status)
+            return Meeting(folder: dir, meta: meta, created: created, status: status, hasAudio: !audioFiles(dir).isEmpty)
         }
         return meetings.sorted { $0.created > $1.created }
+    }
+
+    /// The meeting's recordings (me/others as .caf while recording, .wav after transcription).
+    static func audioFiles(_ folder: URL) -> [URL] {
+        let files = (try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)) ?? []
+        return files.filter { ["caf", "wav"].contains($0.pathExtension.lowercased()) }
+    }
+
+    /// Deletes the recordings but keeps the transcript, notes and meta.json.
+    static func archiveAudio(_ folder: URL) {
+        for f in audioFiles(folder) { try? FileManager.default.removeItem(at: f) }
+        update(folder) { $0.audioArchived = Date() }
     }
 
     static func newFolder(title: String, date: Date) throws -> URL {
@@ -358,6 +374,12 @@ final class AppModel: ObservableObject {
         let t = newTitle.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !t.isEmpty, t != m.title else { return }
         Store.update(m.folder) { $0.title = t }
+        reload()
+    }
+
+    func archiveAudio(_ m: Meeting) {
+        guard !m.isBusy else { return }
+        Store.archiveAudio(m.folder)
         reload()
     }
 

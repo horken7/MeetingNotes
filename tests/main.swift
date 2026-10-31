@@ -105,6 +105,33 @@ func testStore() throws {
     expectEqual(all.first?.isBusy, false)
 }
 
+func testArchiveAudio() throws {
+    let fm = FileManager.default
+    let dir = fm.temporaryDirectory.appendingPathComponent("mn-archive-\(UUID().uuidString)")
+    try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+    defer { try? fm.removeItem(at: dir) }
+    Store.writeMeta(Meta(title: "Weekly", status: "done"), to: dir)
+    for f in ["me.wav", "others.wav", "me.caf", "transcript.md", "notes.md", "me.json"] {
+        try "x".write(to: dir.appendingPathComponent(f), atomically: true, encoding: .utf8)
+    }
+    expectEqual(Store.audioFiles(dir).map(\.lastPathComponent).sorted(), ["me.caf", "me.wav", "others.wav"])
+    let before = Meeting(folder: dir, meta: Meta(title: "Weekly"), created: Date(), status: "done",
+                         hasAudio: !Store.audioFiles(dir).isEmpty)
+    expect(!before.isArchived, "meeting with audio is not archived")
+
+    Store.archiveAudio(dir)
+    expect(Store.audioFiles(dir).isEmpty, "audio files are deleted")
+    for f in ["transcript.md", "notes.md", "meta.json", "me.json"] {
+        expect(fm.fileExists(atPath: dir.appendingPathComponent(f).path), "\(f) is kept")
+    }
+    expect(Store.readMeta(dir)?.audioArchived != nil, "archive date is recorded")
+    expectEqual(Store.readMeta(dir)?.title, "Weekly")
+    let after = Meeting(folder: dir, meta: Meta(title: "Weekly"), created: Date(), status: "done", hasAudio: false)
+    expect(after.isArchived, "meeting without audio is archived")
+    expect(!Meeting(folder: dir, meta: Meta(title: "R"), created: Date(), status: "recording").isArchived,
+           "a recording in progress is not archived")
+}
+
 func testCallTitles() {
     expectEqual(CallInfo.cleanTitle("Meet – Work RightHub"), "Work RightHub")
     expectEqual(CallInfo.cleanTitle("(2) Meet - Weekly sync"), "Weekly sync")
@@ -331,6 +358,7 @@ struct TestMain {
         testMerge()
         testMicUser()
         do { try testStore() } catch { expect(false, "Store threw: \(error)") }
+        do { try testArchiveAudio() } catch { expect(false, "archive threw: \(error)") }
         testCallTitles()
         do { try testNotificationSummary() } catch { expect(false, "notes summary threw: \(error)") }
         testToolsEnvironment()

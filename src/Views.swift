@@ -132,6 +132,9 @@ struct MeetingRow: View {
                 Text(meeting.created, format: .dateTime.day().month(.abbreviated).hour().minute())
                 if let d = meeting.meta.duration { Text("· \(formatDuration(d))") }
                 Spacer()
+                if meeting.isArchived && meeting.status == "done" {
+                    Image(systemName: "archivebox").help("Audio archived")
+                }
                 StatusBadge(status: meeting.status)
             }
             .font(.caption)
@@ -171,6 +174,7 @@ struct MeetingDetail: View {
     @State private var notes = ""
     @State private var transcript = ""
     @State private var confirmTrash = false
+    @State private var confirmArchive = false
     @State private var copied = false
 
     var body: some View {
@@ -184,6 +188,11 @@ struct MeetingDetail: View {
                     Text(meeting.created, format: .dateTime.weekday(.wide).day().month().year().hour().minute())
                     if let d = meeting.meta.duration { Text("· \(formatDuration(d))") }
                     if let app = meeting.meta.app { Text("· \(app)") }
+                    if meeting.isArchived {
+                        Text("·")
+                        Label("Audio archived", systemImage: "archivebox")
+                            .help("The audio files were deleted, so the transcript can't be redone.")
+                    }
                 }
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
@@ -248,8 +257,10 @@ struct MeetingDetail: View {
                     Button("Regenerate notes") { model.retry(meeting, notesOnly: true) }
                         .disabled(meeting.isBusy || transcript.isEmpty)
                     Button("Redo transcript and notes") { model.retry(meeting, notesOnly: false) }
-                        .disabled(meeting.isBusy)
+                        .disabled(meeting.isBusy || meeting.isArchived)
                     Divider()
+                    Button("Archive audio files…") { confirmArchive = true }
+                        .disabled(meeting.isBusy || !meeting.hasAudio)
                     Button("Move to Trash…", role: .destructive) { confirmTrash = true }
                         .disabled(meeting.status == "recording")
                 } label: {
@@ -259,6 +270,11 @@ struct MeetingDetail: View {
         }
         .confirmationDialog("Move \"\(meeting.title)\" to the Trash?", isPresented: $confirmTrash) {
             Button("Move to Trash", role: .destructive) { model.trash(meeting) }
+        }
+        .confirmationDialog("Archive the audio for \"\(meeting.title)\"?", isPresented: $confirmArchive) {
+            Button("Delete audio files", role: .destructive) { model.archiveAudio(meeting) }
+        } message: {
+            Text("The recordings are deleted for good. The notes and transcript are kept, but the transcript can no longer be redone.")
         }
         .task(id: meeting) {
             title = meeting.title
