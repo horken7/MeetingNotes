@@ -401,6 +401,7 @@ struct SettingsView: View {
     @AppStorage(Keys.autoDetect) private var autoDetect = true
     @AppStorage(Keys.autoStart) private var autoStart = false
     @AppStorage(Keys.autoStop) private var autoStop = true
+    @AppStorage(Keys.promptStyle) private var promptStyle = "notification"
     @AppStorage(Keys.keepAudio) private var keepAudio = true
     @AppStorage(Keys.outputDir) private var outputDir = ""
     @AppStorage(Keys.notesProvider) private var notesProvider = NotesProvider.claude.rawValue
@@ -458,6 +459,15 @@ struct SettingsView: View {
                     Toggle("Detect calls when an app starts using the microphone", isOn: $autoDetect)
                     Toggle("Start recording without asking", isOn: $autoStart)
                         .disabled(!autoDetect)
+                    Picker("Ask with", selection: $promptStyle) {
+                        Text("A notification").tag("notification")
+                        Text("A floating panel").tag("panel")
+                    }
+                    .disabled(!autoDetect || autoStart)
+                    if promptStyle == "notification" {
+                        Text("Uses the floating panel instead while notifications aren't allowed (see Setup). Set Meeting Notes to Alerts in System Settings > Notifications to keep it on screen until you answer.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
                     Toggle("Stop automatically when the call ends", isOn: $autoStop)
                     Toggle("Start at login and run in the background", isOn: $openAtLogin)
                         .onChange(of: openAtLogin) { _, on in setLogin(on) }
@@ -549,7 +559,7 @@ struct NotificationRow: View {
             HStack {
                 Image(systemName: allowed ? "checkmark.circle.fill" : "xmark.circle.fill")
                     .foregroundStyle(allowed ? Color.green : Color.red)
-                Text(allowed ? "Notifications when notes are ready" : "Notifications (fallback via Script Editor)")
+                Text(allowed ? "Notifications" : "Notifications (fallback via Script Editor)")
                 Spacer()
                 if status == .notDetermined {
                     Button("Allow…") { Notifier.shared.requestPermission { _ in Task { @MainActor in refresh() } } }
@@ -567,7 +577,7 @@ struct NotificationRow: View {
                 }
             }
             if !allowed, !lastError.isEmpty {
-                Text("macOS said: \(lastError). Notes-ready alerts are sent through Script Editor instead; allow Script Editor in System Settings > Notifications if they don't appear.")
+                Text("macOS said: \(lastError). Notes-ready alerts are sent through Script Editor instead (allow Script Editor in System Settings > Notifications if they don't appear) and calls are offered with the floating panel. Signing the app with a certificate fixes this; see the README.")
                     .font(.caption).foregroundStyle(.secondary)
             }
         }

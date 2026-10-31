@@ -3,6 +3,8 @@
 # Builds and installs a Mac app that records calls, transcribes them on your Mac
 # with whisper.cpp and writes notes with Claude Code or Codex (OpenAI).
 # Run from the MeetingNotes folder:  bash install.sh
+# Optional: SIGN_IDENTITY="Apple Development: Your Name (TEAMID)" bash install.sh
+#   signs with a code-signing certificate from your keychain instead of ad hoc (see README).
 
 set -euo pipefail
 
@@ -150,8 +152,15 @@ PLIST
   fi
 ) || true
 
-codesign --force --sign - --identifier "$BUNDLE_ID" "$APP" >/dev/null 2>&1 \
-  || fail "Code signing failed."
+SIGN_IDENTITY="${SIGN_IDENTITY:--}"
+if [[ "$SIGN_IDENTITY" == "-" ]]; then
+  codesign --force --sign - --identifier "$BUNDLE_ID" "$APP" >/dev/null 2>&1 \
+    || fail "Code signing failed."
+else
+  codesign --force --sign "$SIGN_IDENTITY" --identifier "$BUNDLE_ID" "$APP" \
+    || fail "Signing with \"$SIGN_IDENTITY\" failed. List your identities with: security find-identity -p codesigning"
+  note "Signed with $SIGN_IDENTITY"
+fi
 
 # ---------------------------------------------------------------------------
 step "Installing"
@@ -170,9 +179,12 @@ defaults write "$BUNDLE_ID" notesProvider "$PROVIDER"
 if ! defaults read "$BUNDLE_ID" outputDir >/dev/null 2>&1; then
   defaults write "$BUNDLE_ID" outputDir "$HERE/Meetings"
 fi
-# Each build has a new signature, so clear stale permission entries for a clean prompt.
-tccutil reset Microphone "$BUNDLE_ID" >/dev/null 2>&1 || true
-tccutil reset ScreenCapture "$BUNDLE_ID" >/dev/null 2>&1 || true
+# Each ad hoc build has a new signature, so clear stale permission entries for a clean prompt.
+# With a signing identity the signature stays the same and the permissions are kept.
+if [[ "$SIGN_IDENTITY" == "-" ]]; then
+  tccutil reset Microphone "$BUNDLE_ID" >/dev/null 2>&1 || true
+  tccutil reset ScreenCapture "$BUNDLE_ID" >/dev/null 2>&1 || true
+fi
 note "Installed to $DEST/$APP_NAME.app"
 open "$DEST/$APP_NAME.app"
 
@@ -187,7 +199,7 @@ cat <<'MSG'
          hears the other people on the call; no video is saved). macOS may ask
          you to quit and reopen the app after granting it.
 
-    Then join a call: a small popup offers to start notes. Or press
+    Then join a call: a notification (or a small popup) offers to start notes. Or press
     "Start meeting" in the window or the menu bar icon.
     Notes are saved in the Meetings folder next to install.sh.
 MSG
