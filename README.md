@@ -5,7 +5,7 @@ A small native macOS app that records your video calls, transcribes them **on yo
 [Claude Code](https://claude.com/claude-code) or [Codex (OpenAI)](https://developers.openai.com/codex/cli/).
 
 - **Two tracks, no virtual audio driver.** Your microphone and the call audio are captured separately with
-  ScreenCaptureKit, so the transcript knows who said what (your name vs "Others").
+  a Core Audio tap, so the transcript knows who said what (your name vs "Others").
 - **Detects calls automatically.** When an app such as Google Meet (in any browser), Zoom, Teams or FaceTime starts
   using the microphone, a small prompt offers to take notes, and recording stops a few seconds after you leave the call.
 - **Names meetings for you.** In browsers it reads the call tab's title (e.g. "Meet – Weekly sync" becomes "Weekly sync").
@@ -55,8 +55,8 @@ The installer:
 3. compiles the app with `swiftc`, signs it ad hoc and installs it to `/Applications/Meeting Notes.app`,
 4. opens it.
 
-On first launch, allow **Microphone** and **Screen & System Audio Recording** (that is how the app hears the other
-people on the call; no video is saved). macOS may ask you to quit and reopen the app. The first time a meeting is
+On first launch, allow **Microphone**. When the first recording starts, allow **System Audio Recording** (that is how
+the app hears the other people on the call; it never records the screen, so Screen Recording isn't needed). The first time a meeting is
 detected in a browser, macOS also asks to let Meeting Notes read the browser's tabs, which is used only for the
 meeting name.
 
@@ -72,7 +72,7 @@ For a custom or npm installation, set the executable's absolute path in Settings
 ### Signing with a certificate (optional)
 
 Pass a code-signing identity from your keychain and the installer signs with it instead of ad hoc. The signature
-then stays the same across reinstalls, so Microphone and Screen Recording permissions are kept, and macOS can
+then stays the same across reinstalls, so Microphone and System Audio Recording permissions are kept, and macOS can
 allow real notifications (the "Meeting detected" notification with buttons, clickable "Notes ready" alerts).
 
 ```bash
@@ -165,7 +165,7 @@ like any other text you share with it.
 |---|---|
 | `src/App.swift` | App entry point, main window and menu bar item |
 | `src/Model.swift` | Settings, meeting storage, start/stop, call detection and auto-stop |
-| `src/Recorder.swift` | ScreenCaptureKit capture of mic and system audio into two `.caf` files |
+| `src/Recorder.swift` | Mic (AVAudioEngine) and system audio (Core Audio process tap) capture into two `.caf` files |
 | `src/MicMonitor.swift` | Which apps are using the microphone or playing sound (Core Audio process objects) |
 | `src/CallInfo.swift` | Meeting name from the browser's call tab |
 | `src/Pipeline.swift` | `afconvert` to 16 kHz WAV, `whisper-cli` transcription, transcript merge, notes via `claude -p` or `codex exec` |
@@ -189,7 +189,7 @@ The tests are a small runner in `tests/main.swift` (no XCTest needed, so the com
 the transcript merge, noise filtering, meeting folders and metadata, call-app grouping, meeting title parsing and the
 provider routing, CLI failures and the Claude environment, plus JSON-RPC round trips through the built MCP server. CI runs the same script on GitHub Actions (`macos-15`).
 
-To refresh the README screenshots (uses the app's own Screen Recording permission):
+To refresh the README screenshots (only this needs Screen Recording; macOS asks for it the first time):
 
 ```bash
 open -a "Meeting Notes" --args -captureScreenshots "$PWD/docs/images" -outputDir /path/to/demo/meetings \

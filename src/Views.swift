@@ -651,7 +651,7 @@ struct SettingsView: View {
                     check("\(provider.label) installed", provider.executable != nil)
                     HStack {
                         Button("Microphone permission…") { openPrivacy("Privacy_Microphone") }
-                        Button("Screen & System Audio permission…") { openPrivacy("Privacy_ScreenCapture") }
+                        Button("System Audio permission…") { openPrivacy("Privacy_AudioCapture") }
                     }
                     NotificationRow()
                     MCPRow()

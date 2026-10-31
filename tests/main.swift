@@ -310,6 +310,13 @@ func testNotesInstructions() async throws {
     expect(p.contains("## Key points (grouped by topic)"), "empty instructions fall back to the default")
 }
 
+func testRecorderOffsets() {
+    expectEqual(Recorder.offsets([:]), [:])
+    expectEqual(Recorder.offsets(["me": 100.5]), ["me": 0])
+    expectEqual(Recorder.offsets(["me": 100.25, "others": 101.0]), ["me": 0, "others": 0.75])
+    expectEqual(Recorder.offsets(["me": 12.0, "others": 10.0]), ["me": 2, "others": 0])
+}
+
 func testLoginErrors() {
     expect(Pipeline.isLoginError("Failed to authenticate: OAuth session expired and could not be refreshed"), "Claude expired session")
     expect(Pipeline.isLoginError("Invalid API key · Please run /login"), "Claude logged out")
@@ -421,6 +428,7 @@ struct TestMain {
         do { try testNotificationSummary() } catch { expect(false, "notes summary threw: \(error)") }
         testToolsEnvironment()
         testLoginErrors()
+        testRecorderOffsets()
         do { try await testNotesProviders() } catch { expect(false, "providers threw: \(error)") }
         do { try await testNotesInstructions() } catch { expect(false, "instructions threw: \(error)") }
         do { try testMCPServer() } catch { expect(false, "MCP server threw: \(error)") }
