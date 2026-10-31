@@ -67,6 +67,30 @@ func formatDuration(_ seconds: Double) -> String {
     return String(format: "%d:%02d", t / 60, t % 60)
 }
 
+// MARK: Search
+
+enum TextSearch {
+    private static let options: String.CompareOptions = [.caseInsensitive, .diacriticInsensitive]
+
+    /// True when every word of the query appears somewhere in the text (in any order).
+    static func matches(_ query: String, in text: String) -> Bool {
+        let words = query.split(whereSeparator: \.isWhitespace)
+        return words.allSatisfy { text.range(of: $0, options: options) != nil }
+    }
+
+    /// Every occurrence of the query in the text, for find-in-note highlighting.
+    static func ranges(of query: String, in text: String) -> [Range<String.Index>] {
+        guard !query.isEmpty else { return [] }
+        var result: [Range<String.Index>] = []
+        var from = text.startIndex
+        while from < text.endIndex, let r = text.range(of: query, options: options, range: from..<text.endIndex) {
+            result.append(r)
+            from = r.upperBound
+        }
+        return result
+    }
+}
+
 // MARK: Storage
 
 struct Meta: Codable, Hashable {
@@ -193,6 +217,8 @@ final class AppModel: ObservableObject {
     @Published var recording: ActiveRecording?
     @Published var starting = false
     @Published var banner: String?
+    @Published var findRequest = 0     // bumped by Edit > Find (⌘F) to open the find bar in the open meeting
+    @Published var searchRequest = 0   // bumped by Edit > Search Meetings (⌥⌘F) to focus the sidebar search
     var openMainWindow: (() -> Void)?   // set by the menu bar label, which has SwiftUI's openWindow
     @Published var now = Date()   // ticks every second while recording, for the menu bar clock
 
@@ -205,6 +231,7 @@ final class AppModel: ObservableObject {
     private var dismissedKey: String?
     private var promptUser: MicUser?   // the call being asked about (panel or notification)
     private var names: [String: String?] = [:]   // meeting name per call app key, from its call tab
+    private var searchCache: [String: String] = [:]   // title, notes and transcript per meeting, for the sidebar search
 
     func launch() {
         Notifier.shared.setUp()
@@ -230,6 +257,24 @@ final class AppModel: ObservableObject {
 
     func reload() {
         meetings = Store.loadAll()
+        searchCache = [:]
+    }
+
+    /// Meetings whose title, notes or transcript contain every word of the query.
+    func meetings(matching query: String) -> [Meeting] {
+        let q = query.trimmingCharacters(in: .whitespaces)
+        guard !q.isEmpty else { return meetings }
+        return meetings.filter { m in
+            let text = searchCache[m.id] ?? {
+                let body = ["notes.md", "transcript.md"].compactMap {
+                    try? String(contentsOf: m.folder.appendingPathComponent($0), encoding: .utf8)
+                }
+                let t = ([m.title] + body).joined(separator: "\n")
+                searchCache[m.id] = t
+                return t
+            }()
+            return TextSearch.matches(q, in: text)
+        }
     }
 
     private func markInterrupted() {

@@ -132,6 +132,32 @@ func testArchiveAudio() throws {
            "a recording in progress is not archived")
 }
 
+func testSearch() {
+    expect(TextSearch.matches("budget anna", in: "Weekly\n**Anna:** We agreed on the Budget."), "all words, any order, any case")
+    expect(TextSearch.matches("mote", in: "Möte om budget"), "diacritics are ignored")
+    expect(!TextSearch.matches("budget bob", in: "Anna: the budget"), "every word must appear")
+    expect(TextSearch.matches("  ", in: "anything"), "empty query matches everything")
+    expectEqual(TextSearch.ranges(of: "ab", in: "abcABab").count, 3)
+    expectEqual(TextSearch.ranges(of: "aa", in: "aaaa").count, 2)
+    expectEqual(TextSearch.ranges(of: "", in: "abc").count, 0)
+
+    // Find in note matches the rendered text: Markdown markers and list bullets don't get in the way.
+    let note = "## Budget\n\n- **Anna:** budget is fine\n- [ ] Send the budget\nNo match here"
+    expectEqual(MarkdownView.matches(of: "budget", in: note),
+                [.init(line: 0, index: 0), .init(line: 2, index: 0), .init(line: 3, index: 0)])
+    expectEqual(MarkdownView.matches(of: "Anna: budget", in: note), [.init(line: 2, index: 0)])
+    expectEqual(MarkdownView.matches(of: "[ ]", in: note), [])
+    expectEqual(MarkdownView.matches(of: "", in: note), [])
+
+    // A long transcript stays quick to search.
+    let transcript = (0..<500).map { "[\(formatDuration(Double($0) * 7))] **Anna:** line \($0) about the budget and the plan" }
+        .joined(separator: "\n\n")
+    let start = Date()
+    let found = MarkdownView.matches(of: "plan", in: transcript)
+    expectEqual(found.count, 500)
+    expect(Date().timeIntervalSince(start) < 0.5, "searching 500 lines took \(Date().timeIntervalSince(start)) s")
+}
+
 func testCallTitles() {
     expectEqual(CallInfo.cleanTitle("Meet – Work RightHub"), "Work RightHub")
     expectEqual(CallInfo.cleanTitle("(2) Meet - Weekly sync"), "Weekly sync")
@@ -359,6 +385,7 @@ struct TestMain {
         testMicUser()
         do { try testStore() } catch { expect(false, "Store threw: \(error)") }
         do { try testArchiveAudio() } catch { expect(false, "archive threw: \(error)") }
+        testSearch()
         testCallTitles()
         do { try testNotificationSummary() } catch { expect(false, "notes summary threw: \(error)") }
         testToolsEnvironment()
