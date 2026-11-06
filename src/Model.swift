@@ -243,6 +243,7 @@ final class AppModel: ObservableObject {
     @Published var findRequest = 0     // bumped by Edit > Find (⌘F) to open the find bar in the open meeting
     @Published var searchRequest = 0   // bumped by Edit > Search Meetings (⌥⌘F) to focus the sidebar search
     var openMainWindow: (() -> Void)?   // set by the menu bar label, which has SwiftUI's openWindow
+    var openSetupWindow: (() -> Void)?  // likewise, for the setup window
     @Published var now = Date()   // ticks every second while recording, for the menu bar clock
 
     private var recorder: AudioCapture?

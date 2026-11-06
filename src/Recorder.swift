@@ -164,7 +164,7 @@ private final class TrackWriter {
 
 /// A Core Audio process tap (macOS 14.4+) on everything the Mac plays except this app,
 /// read through a private aggregate device that contains only the tap.
-private final class SystemAudioTap {
+final class SystemAudioTap {
     private var tapID = AudioObjectID(kAudioObjectUnknown)
     private var deviceID = AudioObjectID(kAudioObjectUnknown)
     private var procID: AudioDeviceIOProcID?

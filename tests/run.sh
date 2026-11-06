@@ -16,7 +16,13 @@ xcrun --sdk macosx swiftc -O "${FLAGS[@]:1}" -o "$OUT/meetingnotes-mcp" mcp/main
 
 echo "==> Packing the Claude Desktop extension"
 bash mcp/pack.sh "$OUT/MeetingNotes.mcpb" "$OUT/meetingnotes-mcp"
-unzip -l "$OUT/MeetingNotes.mcpb" | grep -q "server/launch.sh"
+unzip -l "$OUT/MeetingNotes.mcpb" | grep "server/launch.sh" >/dev/null
+# The launcher runs the given server, and falls back to the app's bundled copy.
+unzip -p "$OUT/MeetingNotes.mcpb" server/launch.sh > "$OUT/launch.sh"
+sh -n "$OUT/launch.sh"
+grep -F "Meeting Notes.app/\$BIN" "$OUT/launch.sh" >/dev/null
+printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"t","version":"1"}}}' \
+  | sh "$OUT/launch.sh" | grep '"serverInfo"' >/dev/null
 /usr/bin/python3 -c 'import json,sys,zipfile; m=json.loads(zipfile.ZipFile(sys.argv[1]).read("manifest.json")); assert m["server"]["entry_point"]=="server/launch.sh" and "icon" not in m' "$OUT/MeetingNotes.mcpb"
 
 echo "==> Building the tests"
@@ -27,6 +33,11 @@ xcrun --sdk macosx swiftc "${FLAGS[@]}" -o "$OUT/tests" "${SOURCES[@]}" tests/ma
 echo "==> Running the tests"
 MEETINGNOTES_MCP="$OUT/meetingnotes-mcp" "$OUT/tests"
 
-echo "==> Checking install.sh syntax"
+echo "==> Checking the install and packaging scripts"
 bash -n install.sh
+for f in packaging/*.sh mcp/pack.sh; do bash -n "$f"; done
+bash packaging/info-plist.sh 1.2.3 45 > "$OUT/Info.plist"
+plutil -lint "$OUT/Info.plist" >/dev/null
+[[ "$(plutil -extract CFBundleShortVersionString raw "$OUT/Info.plist")" == "1.2.3" ]]
+[[ "$(plutil -extract CFBundleIdentifier raw "$OUT/Info.plist")" == "se.frinkle.meetingnotes" ]]
 echo "All good."

@@ -26,6 +26,13 @@ struct MeetingNotesApp: App {
             }
         }
 
+        Window("Set Up Meeting Notes", id: "setup") {
+            SetupView()
+        }
+        .windowResizability(.contentSize)
+        .defaultLaunchBehavior(.suppressed)
+        .restorationBehavior(.disabled)
+
         MenuBarExtra {
             MenuContent().environmentObject(model)
         } label: {
@@ -35,11 +42,11 @@ struct MeetingNotesApp: App {
 }
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    private var launchedAtLogin = false
+    static var launchedAtLogin = false
 
     func applicationWillFinishLaunching(_ notification: Notification) {
         let event = NSAppleEventManager.shared().currentAppleEvent
-        launchedAtLogin = event?.eventID == kAEOpenApplication
+        Self.launchedAtLogin = event?.eventID == kAEOpenApplication
             && event?.paramDescriptor(forKeyword: keyAEPropData)?.enumCodeValue == keyAELaunchedAsLogInItem
     }
 
@@ -50,6 +57,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             UserDefaults.standard.set(true, forKey: offered)
             try? SMAppService.mainApp.register()
         }
+        AppLocation.clearQuarantine(AppLocation.bundledHelpers)
         AppModel.shared.launch()
 
         // Like a background service: no Dock icon while the window is closed.
@@ -59,7 +67,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         captureScreenshotsIfRequested()
-        if launchedAtLogin {
+        if Self.launchedAtLogin {
             // Started at login: stay in the menu bar without opening the window.
             DispatchQueue.main.async {
                 for w in Self.mainWindows() { w.close() }
@@ -144,6 +152,7 @@ struct MenuContent: View {
         }
         Divider()
         Button("Open Meeting Notes") { model.openMainWindow?() }
+        Button("Set Up Meeting Notes…") { model.openSetupWindow?() }
         Divider()
         Button("Quit Meeting Notes") { NSApp.terminate(nil) }
             .keyboardShortcut("q")
@@ -163,6 +172,15 @@ struct MenuBarLabel: View {
                 NSApp.setActivationPolicy(.regular)
                 openWindow(id: "main")
                 NSApp.activate()
+            }
+            model.openSetupWindow = {
+                NSApp.setActivationPolicy(.regular)
+                openWindow(id: "setup")
+                NSApp.activate()
+            }
+            // First launch (and until setup is finished once): show the setup window.
+            if !AppDelegate.launchedAtLogin {
+                SetupModel.shared.launchCheck { model.openSetupWindow?() }
             }
         }
     }

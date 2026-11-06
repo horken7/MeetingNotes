@@ -103,7 +103,7 @@ struct Banners: View {
                 BannerRow(text: msg, color: .orange) { model.banner = nil }
             }
             if !Tools.modelInstalled {
-                BannerRow(text: "The speech model is missing. Run the installer again.", color: .red, onClose: nil)
+                SpeechBanner()
             }
         }
     }
@@ -125,6 +125,28 @@ struct BannerRow: View {
         }
         .padding(10)
         .background(color.opacity(0.12))
+    }
+}
+
+/// Shown until the speech model is downloaded, with its progress and a way to finish setup.
+struct SpeechBanner: View {
+    @ObservedObject private var setup = SetupModel.shared
+    @EnvironmentObject var model: AppModel
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "arrow.down.circle.fill").foregroundStyle(.orange)
+            if case .running(let received, let total, _) = setup.speech {
+                Text("Downloading the speech model…")
+                ProgressView(value: total.map { Double(received) / Double(max($0, 1)) } ?? 0).frame(maxWidth: 200)
+            } else {
+                Text("Meeting Notes needs its speech model before it can write down calls.")
+            }
+            Spacer()
+            Button("Open setup…") { model.openSetupWindow?() }
+        }
+        .padding(10)
+        .background(Color.orange.opacity(0.12))
     }
 }
 
@@ -655,6 +677,14 @@ struct SettingsView: View {
                     Toggle("Keep audio recordings", isOn: $keepAudio)
                 }
                 Section("Setup") {
+                    HStack {
+                        Text("Guided setup: speech model, notes, permissions")
+                        Spacer()
+                        Button("Set up Meeting Notes…") {
+                            dismiss()
+                            model.openSetupWindow?()
+                        }
+                    }
                     check("Whisper (transcription on your Mac)", Tools.whisper != nil)
                     check("Speech model", Tools.modelInstalled)
                     if provider == .ollama {
@@ -775,7 +805,7 @@ struct MCPRow: View {
                     .foregroundStyle(installed ? Color.green : Color.red)
                 Text("Ask AI apps about your meetings (MCP server)")
                 Spacer()
-                Button("Add to Claude Desktop") { NSWorkspace.shared.open(Tools.mcpExtension) }
+                Button("Add to Claude Desktop") { SetupModel.shared.addToClaudeDesktop() }
                     .disabled(!installed || !FileManager.default.fileExists(atPath: Tools.mcpExtension.path))
                     .help("Opens the Meeting Notes extension in Claude Desktop, which asks you to install it")
                 Menu(copied.map { "Copied \($0)" } ?? "Other apps") {
@@ -791,7 +821,7 @@ struct MCPRow: View {
                 .disabled(!installed)
             }
             Text(installed ? "AI apps can then list, search and read your notes and transcripts. Never audio, and they can't change anything. Commands go in Terminal; the JSON goes in the app's MCP settings."
-                           : "Run bash install.sh again to install the MCP server.")
+                           : "Not included in this copy. Download Meeting Notes again, or run install.sh if you built it from source.")
                 .font(.caption).foregroundStyle(.secondary)
         }
     }
