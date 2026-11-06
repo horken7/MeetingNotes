@@ -1,0 +1,33 @@
+name: iOS
+
+on:
+  push:
+    branches: [main]
+    paths: ["ios/**", ".github/workflows/ios.yml"]
+  pull_request:
+    paths: ["ios/**", ".github/workflows/ios.yml"]
+
+jobs:
+  build-and-test:
+    # The app targets iOS 26 (SpeechAnalyzer, Foundation Models), which needs Xcode 26.
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+      - name: Xcode version
+        run: xcodebuild -version
+      - name: Unit tests (macOS)
+        run: swift test --package-path ios/MeetingCore
+      - name: Pick a simulator
+        run: |
+          id=$(xcrun simctl list devices available -j | python3 -c '
+          import json, sys
+          d = json.load(sys.stdin)["devices"]
+          ios = sorted((k for k in d if "SimRuntime.iOS-26" in k), reverse=True)
+          print(next(x["udid"] for k in ios for x in d[k] if x["name"].startswith("iPhone")))')
+          echo "SIM_ID=$id" >> "$GITHUB_ENV"
+      - name: Build and test for the iOS Simulator
+        working-directory: ios
+        run: |
+          xcodebuild test -project MeetingNotes.xcodeproj -scheme MeetingNotes \
+            -destination "id=$SIM_ID" CODE_SIGNING_ALLOWED=NO | tail -40
+          exit ${PIPESTATUS[0]}
