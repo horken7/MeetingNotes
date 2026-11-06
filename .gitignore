@@ -1,2 +1,6 @@
 Meetings/
 .DS_Store
+ios/MeetingCore/.build/
+ios/MeetingCore/.swiftpm/
+xcuserdata/
+*.xcodeproj/project.xcworkspace/
