@@ -35,7 +35,9 @@ lipo -create "${SLICES[@]}" -output "$OUT"
 strip -x "$OUT" 2>/dev/null || true
 
 # Self-contained: only system libraries and frameworks.
-if otool -L "$OUT" | tail -n +2 | grep -vE '^\s+(/usr/lib/|/System/Library/)'; then
+# (A universal binary lists each architecture under its own "file (architecture x):" header line.)
+otool -L "$OUT"
+if otool -L "$OUT" | grep -E '^\s' | grep -vE '^\s+(/usr/lib/|/System/Library/)'; then
   echo "whisper-cli links non-system libraries (listed above)" >&2; exit 1
 fi
 echo "==> $OUT ($(lipo -archs "$OUT"))"
