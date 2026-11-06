@@ -1,0 +1,40 @@
+@import "tailwindcss";
+
+@theme {
+  --color-accent-50: oklch(0.97 0.02 185);
+  --color-accent-100: oklch(0.93 0.05 185);
+  --color-accent-400: oklch(0.75 0.12 185);
+  --color-accent-500: oklch(0.65 0.12 185);
+  --color-accent-600: oklch(0.55 0.11 185);
+  --color-accent-700: oklch(0.47 0.09 185);
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+}
+
+:root {
+  color-scheme: light dark;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  @apply bg-white text-zinc-900 antialiased dark:bg-zinc-950 dark:text-zinc-100;
+}
+
+.prose-legal h2 {
+  @apply mt-10 mb-3 text-xl font-semibold;
+}
+.prose-legal p,
+.prose-legal li {
+  @apply leading-relaxed text-zinc-700 dark:text-zinc-300;
+}
+.prose-legal p {
+  @apply mb-4;
+}
+.prose-legal ul {
+  @apply mb-4 list-disc space-y-1 pl-6;
+}
+.prose-legal a {
+  @apply text-accent-700 underline dark:text-accent-400;
+}
