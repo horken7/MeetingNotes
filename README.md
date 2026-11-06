@@ -35,6 +35,9 @@ on the [Releases](https://github.com/horken7/MeetingNotes/releases) page). It wr
 Each meeting gets its own folder with `transcript.md`, `notes.md` (Summary, Decisions, Action items, Open questions,
 Key points), the audio as 16 kHz WAV, and `meta.json`.
 
+**In-person meetings on Android:** the [Android app](android/README.md) records with the phone's microphone and
+makes the transcript and notes on the phone, offline.
+
 ## Requirements
 
 - macOS 15 (Sequoia) or newer, Apple silicon or Intel

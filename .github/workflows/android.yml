@@ -1,0 +1,74 @@
+name: Android
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+    paths-ignore: ['src/**', 'tests/**', 'mcp/**', 'install.sh']
+  pull_request:
+    paths: ['android/**', '.github/workflows/android.yml']
+
+permissions:
+  contents: write   # to attach the APK to a release
+
+jobs:
+  apk:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: android
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Unit tests
+        run: ./gradlew --no-daemon :app:testDebugUnitTest
+
+      # Signs with the repository's release key when the secrets are set (so updates install over older
+      # versions), otherwise with a throwaway debug key.
+      - name: Release key
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.keystore"
+            echo "ANDROID_KEYSTORE_PATH=$RUNNER_TEMP/release.keystore" >> "$GITHUB_ENV"
+          else
+            echo "No ANDROID_KEYSTORE_BASE64 secret: the APK is signed with a debug key."
+          fi
+
+      - name: Build APK
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          VERSION_CODE: ${{ github.run_number }}
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then export VERSION_NAME="${GITHUB_REF_NAME#v}"; fi
+          ./gradlew --no-daemon assembleRelease
+          cp app/build/outputs/apk/release/app-release.apk MeetingNotes.apk
+          "$ANDROID_HOME"/build-tools/*/apksigner verify --print-certs MeetingNotes.apk | head -3 || true
+          ls -l MeetingNotes.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MeetingNotes-android
+          path: android/MeetingNotes.apk
+          if-no-files-found: error
+
+      - name: Attach to release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # The Mac and Windows jobs attach their installers to the same release; whichever runs first creates it.
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 \
+            || gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --generate-notes \
+            || true
+          gh release upload "$GITHUB_REF_NAME" MeetingNotes.apk --clobber
