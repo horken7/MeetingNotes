@@ -1,0 +1,109 @@
+name: Mac app (DMG)
+
+# Builds MeetingNotes.dmg: the app with whisper-cli, the MCP server and the Claude Desktop extension
+# inside, ad hoc signed (not notarized). On a v* tag it is uploaded to that GitHub Release, next to
+# the Windows installer from the Windows job. On pull requests that touch the app or the packaging
+# it is built and kept as a workflow artifact for testing.
+
+on:
+  push:
+    tags: ["v*"]
+  pull_request:
+    paths:
+      - "packaging/**"
+      - "src/**"
+      - "mcp/**"
+      - "makeicon.swift"
+      - ".github/workflows/release-mac.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  dmg:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # the build number is the commit count
+
+      - name: Version
+        id: version
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=0.0.0-$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Tools
+        run: |
+          python3 -m venv "$RUNNER_TEMP/venv"
+          "$RUNNER_TEMP/venv/bin/pip" install --quiet "dmgbuild==1.6.7"
+          echo "$RUNNER_TEMP/venv/bin" >> "$GITHUB_PATH"
+          command -v cmake || brew install cmake
+
+      - name: Cache whisper-cli
+        id: whisper-cache
+        uses: actions/cache@v4
+        with:
+          path: build/whisper-cli
+          key: whisper-cli-${{ hashFiles('packaging/build-whisper.sh') }}
+
+      - name: Build whisper-cli (universal, static, Metal)
+        if: steps.whisper-cache.outputs.cache-hit != 'true'
+        run: bash packaging/build-whisper.sh build/whisper-cli
+
+      - name: Check whisper-cli
+        run: |
+          # (grep >/dev/null, not grep -q: with pipefail an early exit would fail the step)
+          [[ " $(lipo -archs build/whisper-cli) " == *" arm64 "* && " $(lipo -archs build/whisper-cli) " == *" x86_64 "* ]]
+          build/whisper-cli --help 2>&1 | grep -- "--vad" >/dev/null
+          otool -L build/whisper-cli
+
+      - name: Build the app
+        run: WHISPER_CLI=build/whisper-cli bash packaging/build-app.sh build "${{ steps.version.outputs.version }}"
+
+      - name: Build the disk image
+        run: bash packaging/make-dmg.sh "build/Meeting Notes.app" build/MeetingNotes.dmg
+
+      - name: Smoke test the disk image
+        run: |
+          MOUNT="$(mktemp -d)"
+          hdiutil attach -nobrowse -readonly -mountpoint "$MOUNT" build/MeetingNotes.dmg
+          APP="$MOUNT/Meeting Notes.app"
+          test -L "$MOUNT/Applications"
+          codesign --verify --strict --deep "$APP"
+          for exe in MeetingNotes whisper-cli meetingnotes-mcp; do
+            archs=" $(lipo -archs "$APP/Contents/MacOS/$exe") "
+            echo "$exe:$archs"
+            [[ "$archs" == *" arm64 "* && "$archs" == *" x86_64 "* ]]
+          done
+          "$APP/Contents/MacOS/whisper-cli" --help >/dev/null 2>&1 || [[ $? -le 1 ]]
+          printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"ci","version":"1"}}}' \
+            | "$APP/Contents/MacOS/meetingnotes-mcp" | grep '"serverInfo"' >/dev/null
+          unzip -p "$APP/Contents/Resources/MeetingNotes.mcpb" manifest.json | python3 -c 'import json,sys; m=json.load(sys.stdin); assert m["server"]["entry_point"]=="server/launch.sh"; print(m["version"])'
+          [[ "$(plutil -extract CFBundleShortVersionString raw "$APP/Contents/Info.plist")" == "${{ steps.version.outputs.version }}" ]]
+          hdiutil detach "$MOUNT"
+          ls -lh build/MeetingNotes.dmg
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MeetingNotes-dmg
+          path: build/MeetingNotes.dmg
+          retention-days: 14
+
+      - name: Upload to the GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          # The Windows job may create the release at the same moment: create it only if missing,
+          # and accept losing that race.
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" --title "Meeting Notes ${TAG#v}" --generate-notes \
+              || gh release view "$TAG" >/dev/null
+          fi
+          gh release upload "$TAG" build/MeetingNotes.dmg --clobber

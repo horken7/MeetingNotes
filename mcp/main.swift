@@ -3,7 +3,8 @@ import Foundation
 // Meeting Notes MCP server: a read-only stdio server (JSON-RPC 2.0, one message per line) that lets
 // Claude Code, Claude Desktop and other MCP clients list, search and read your meetings.
 // It only reads meta.json, notes.md and transcript.md; it never writes and never touches audio files.
-// Built by install.sh into ~/.meetnotes/bin/meetingnotes-mcp. Connect with:
+// Built by install.sh into ~/.meetnotes/bin/meetingnotes-mcp, and bundled in the downloadable app as
+// Meeting Notes.app/Contents/MacOS/meetingnotes-mcp. Connect with:
 //   claude mcp add meeting-notes -- ~/.meetnotes/bin/meetingnotes-mcp
 
 let serverVersion = "1.0"
@@ -15,7 +16,11 @@ let maxText = 100_000   // characters per get_notes / get_transcript call; use o
 /// The app's meetings folder: MEETINGNOTES_DIR (used by the tests), else the app's setting, else the default.
 let root: URL = {
     let env = ProcessInfo.processInfo.environment["MEETINGNOTES_DIR"]
-    let setting = UserDefaults(suiteName: "se.frinkle.meetingnotes")?.string(forKey: "outputDir")
+    // Inside the app bundle (Contents/MacOS) this process has the app's bundle identifier, and a suite
+    // named after your own identifier reads nothing, so use the standard defaults there.
+    let app = "se.frinkle.meetingnotes"
+    let defaults = Bundle.main.bundleIdentifier == app ? UserDefaults.standard : UserDefaults(suiteName: app)
+    let setting = defaults?.string(forKey: "outputDir")
     let path = env ?? setting ?? "~/Documents/Meetings"
     return URL(fileURLWithPath: (path as NSString).expandingTildeInPath).standardizedFileURL
 }()

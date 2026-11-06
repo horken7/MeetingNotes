@@ -147,30 +147,7 @@ APP="$BUILD/$APP_NAME.app"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 mv "$BUILD/$EXEC" "$APP/Contents/MacOS/$EXEC"
 
-cat > "$APP/Contents/Info.plist" <<PLIST
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>CFBundleIdentifier</key><string>$BUNDLE_ID</string>
-  <key>CFBundleName</key><string>$APP_NAME</string>
-  <key>CFBundleDisplayName</key><string>$APP_NAME</string>
-  <key>CFBundleExecutable</key><string>$EXEC</string>
-  <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleShortVersionString</key><string>1.0</string>
-  <key>CFBundleVersion</key><string>1</string>
-  <key>CFBundleIconFile</key><string>AppIcon</string>
-  <key>LSMinimumSystemVersion</key><string>15.0</string>
-  <key>LSApplicationCategoryType</key><string>public.app-category.productivity</string>
-  <key>NSHighResolutionCapable</key><true/>
-  <key>NSAppTransportSecurity</key><dict><key>NSAllowsLocalNetworking</key><true/></dict>
-  <key>NSPrincipalClass</key><string>NSApplication</string>
-  <key>NSAppleEventsUsageDescription</key><string>Meeting Notes reads the call tab's title in your browser to name the meeting.</string>
-  <key>NSMicrophoneUsageDescription</key><string>Meeting Notes records your side of the call to transcribe it.</string>
-  <key>NSAudioCaptureUsageDescription</key><string>Meeting Notes records the other people on the call (the sound your Mac plays) to transcribe it.</string>
-</dict>
-</plist>
-PLIST
+bash "$HERE/packaging/info-plist.sh" 1.0 1 > "$APP/Contents/Info.plist"
 
 # App icon (cosmetic, skipped if anything goes wrong)
 (

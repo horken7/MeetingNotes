@@ -44,6 +44,9 @@ Key points), the audio as 16 kHz WAV, and `meta.json`.
 
 ## Install
 
+Without Terminal: download `MeetingNotes.dmg` from the [latest release](https://github.com/horken7/MeetingNotes/releases/latest),
+drag the app to Applications and open it; a setup window does the rest. To build from source instead:
+
 ```bash
 git clone https://github.com/horken7/MeetingNotes.git
 cd MeetingNotes
@@ -231,6 +234,10 @@ To refresh the README screenshots (only this needs Screen Recording; macOS asks 
 open -a "Meeting Notes" --args -captureScreenshots "$PWD/docs/images" -outputDir /path/to/demo/meetings \
     [-screenshotAppearance dark]
 ```
+
+The downloadable app is built by `.github/workflows/release-mac.yml` on every `v*` tag (and as an artifact on pull
+requests): `packaging/build-whisper.sh` builds a static, universal `whisper-cli` from a pinned whisper.cpp release,
+`packaging/build-app.sh` bundles it with the app and the MCP server, and `packaging/make-dmg.sh` makes the disk image.
 
 `docs/VERIFY.md` is the manual end-to-end checklist (permissions, recording, languages, auto-detection, robustness).
 

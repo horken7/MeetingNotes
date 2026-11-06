@@ -13,15 +13,15 @@ enum NotesProvider: String, CaseIterable {
     }
     var loginHint: String {
         switch self {
-        case .claude: return "Run `claude` in Terminal once and log in."
-        case .codex: return "Run `codex login` in Terminal and log in."
-        case .ollama: return "No account needed. Install with `brew install ollama`, then `ollama pull \(Ollama.model)`."
+        case .claude: return "Sign in with Settings > Set up Meeting Notes…, or run `claude` in Terminal once and log in."
+        case .codex: return "Sign in with Settings > Set up Meeting Notes…, or run `codex login` in Terminal."
+        case .ollama: return "No account needed. Settings > Set up Meeting Notes… helps install Ollama and download \(Ollama.model)."
         }
     }
     var reloginHint: String {
         switch self {
-        case .claude: return "Open Terminal, run `claude`, type /login and sign in."
-        case .codex: return "Open Terminal and run `codex login`."
+        case .claude: return "Sign in again with Settings > Set up Meeting Notes… (or run `claude auth login` in Terminal)."
+        case .codex: return "Sign in again with Settings > Set up Meeting Notes… (or run `codex login` in Terminal)."
         case .ollama: return "Start Ollama with `brew services start ollama` or by opening the Ollama app."
         }
     }
@@ -43,31 +43,57 @@ enum Tools {
     static var model: URL { dataDir.appendingPathComponent("ggml-large-v3-turbo.bin") }
     static var vadModel: URL { dataDir.appendingPathComponent("ggml-silero-v5.1.2.bin") }
     static var modelInstalled: Bool { FileManager.default.fileExists(atPath: model.path) }
-    static var mcpServer: URL { dataDir.appendingPathComponent("bin/meetingnotes-mcp") }
-    static var mcpExtension: URL { dataDir.appendingPathComponent("MeetingNotes.mcpb") }   // Claude Desktop extension
+    /// The MCP server: the copy inside the app bundle (DMG install), else the one install.sh builds.
+    static var mcpServer: URL {
+        bundled("meetingnotes-mcp").map(URL.init(fileURLWithPath:)) ?? dataDir.appendingPathComponent("bin/meetingnotes-mcp")
+    }
+    /// Claude Desktop extension: bundled in Resources (DMG install), else the one install.sh packs.
+    static var mcpExtension: URL {
+        if let r = Bundle.main.resourceURL?.appendingPathComponent("MeetingNotes.mcpb"),
+           FileManager.default.fileExists(atPath: r.path) { return r }
+        return dataDir.appendingPathComponent("MeetingNotes.mcpb")
+    }
 
-    static func find(_ name: String, preferred: String? = nil) -> String? {
-        var candidates: [String] = []
-        if let p = preferred, !p.isEmpty { candidates.append(p) }
-        candidates += [
+    /// Folders inside the running app bundle that may hold bundled tools (Contents/MacOS, Contents/Resources).
+    static var bundleDirs: [String] {
+        [Bundle.main.executableURL?.deletingLastPathComponent().path, Bundle.main.resourceURL?.path].compactMap { $0 }
+    }
+
+    static func bundled(_ name: String) -> String? {
+        bundleDirs.map { "\($0)/\(name)" }.first { FileManager.default.isExecutableFile(atPath: $0) }
+    }
+
+    /// Where to look for a tool, in order: a path set in Settings, the app bundle, the usual install
+    /// locations, then PATH. Pure, so the order is tested.
+    static func candidates(_ name: String, preferred: String?, bundleDirs: [String], home: String, path: String) -> [String] {
+        var list: [String] = []
+        if let p = preferred, !p.isEmpty { list.append(p) }
+        list += bundleDirs.map { "\($0)/\(name)" }
+        list += [
             "/opt/homebrew/bin/\(name)",
             "/usr/local/bin/\(name)",
             "\(home)/.local/bin/\(name)",
             "\(home)/.claude/local/\(name)",
             "/usr/bin/\(name)",
         ]
-        candidates += (ProcessInfo.processInfo.environment["PATH"] ?? "")
-            .split(separator: ":").map { "\($0)/\(name)" }
-        return candidates.first { FileManager.default.isExecutableFile(atPath: $0) }
+        list += path.split(separator: ":").map { "\($0)/\(name)" }
+        return list
+    }
+
+    static func find(_ name: String, preferred: String? = nil, inBundle: Bool = true) -> String? {
+        candidates(name, preferred: preferred, bundleDirs: inBundle ? bundleDirs : [], home: home,
+                   path: ProcessInfo.processInfo.environment["PATH"] ?? "")
+            .first { FileManager.default.isExecutableFile(atPath: $0) }
     }
 
     static var whisper: String? { find("whisper-cli") }
-    static var claude: String? { find("claude", preferred: UserDefaults.standard.string(forKey: Keys.claudePath)) }
+    // Never bundled; the app's own MacOS folder holds only MeetingNotes, whisper-cli and the MCP server.
+    static var claude: String? { find("claude", preferred: UserDefaults.standard.string(forKey: Keys.claudePath), inBundle: false) }
 
-    static var codex: String? { find("codex", preferred: UserDefaults.standard.string(forKey: Keys.codexPath)) }
+    static var codex: String? { find("codex", preferred: UserDefaults.standard.string(forKey: Keys.codexPath), inBundle: false) }
 
     static var ollamaInstalled: Bool {
-        find("ollama") != nil || FileManager.default.fileExists(atPath: "/Applications/Ollama.app")
+        find("ollama", inBundle: false) != nil || FileManager.default.fileExists(atPath: "/Applications/Ollama.app")
     }
 
     /// GUI apps don't get the shell PATH, so give child processes a sensible one.
@@ -216,10 +242,10 @@ enum Pipeline {
         guard size > 32_000 else { return [] }   // under a second of audio
 
         guard let whisper = Tools.whisper else {
-            throw PipelineError(message: "whisper-cli wasn't found. Run the installer again.")
+            throw PipelineError(message: "The transcription engine (whisper-cli) wasn't found. Download Meeting Notes again from the Releases page, or run install.sh if you built it from source.")
         }
         guard Tools.modelInstalled else {
-            throw PipelineError(message: "The speech model is missing. Run the installer again.")
+            throw PipelineError(message: "The speech model isn't downloaded yet. Open Settings > Set up Meeting Notes… to download it, then press Retry.")
         }
         let base = folder.appendingPathComponent(track)
         let threads = min(8, ProcessInfo.processInfo.activeProcessorCount)
@@ -338,7 +364,7 @@ enum Pipeline {
         let prompt = notesPrompt(meta: meta, myName: myName)
         func cli() throws -> String {
             guard let executable = provider.executable else {
-                throw PipelineError(message: "\(provider.label) wasn't found. Run `bash install.sh --provider \(provider.rawValue)` or set its path in Settings.")
+                throw PipelineError(message: "\(provider.label) wasn't found. Open Settings > Set up Meeting Notes… to install it, or set its path in Settings.")
             }
             return executable
         }
@@ -526,8 +552,8 @@ enum Ollama {
 
     static func notRunningMessage(_ base: String) -> String {
         let fix = Tools.ollamaInstalled
-            ? "Start it with `brew services start ollama` or by opening the Ollama app"
-            : "Install it with `brew install ollama` and start it with `brew services start ollama`"
+            ? "Start it by opening the Ollama app (or `brew services start ollama`)"
+            : "Install it from ollama.com/download (Settings > Set up Meeting Notes… helps) and open it"
         return "Ollama isn't running at \(base). \(fix)."
     }
 

@@ -558,6 +558,208 @@ func testOllamaProvider() async throws {
     expectEqual(await Ollama.status(model: "qwen3:8b", base: "http://127.0.0.1:1"), .notRunning)
 }
 
+
+// MARK: Packaging and setup
+
+func testToolLookupOrder() {
+    let list = Tools.candidates("whisper-cli", preferred: "/custom/whisper-cli",
+                                bundleDirs: ["/App.app/Contents/MacOS", "/App.app/Contents/Resources"],
+                                home: "/Users/a", path: "/x/bin:/y/bin")
+    expectEqual(Array(list.prefix(3)), ["/custom/whisper-cli", "/App.app/Contents/MacOS/whisper-cli", "/App.app/Contents/Resources/whisper-cli"])
+    expectEqual(list[3], "/opt/homebrew/bin/whisper-cli")
+    expect(list.contains("/Users/a/.local/bin/whisper-cli"), "looks in ~/.local/bin")
+    expectEqual(Array(list.suffix(2)), ["/x/bin/whisper-cli", "/y/bin/whisper-cli"])
+    // Empty preferred path and no bundle (source build): Homebrew comes first.
+    expectEqual(Tools.candidates("claude", preferred: "", bundleDirs: [], home: "/h", path: "").first, "/opt/homebrew/bin/claude")
+
+    // A bundled tool wins over one on PATH.
+    let fm = FileManager.default
+    let dir = fm.temporaryDirectory.appendingPathComponent("mn-tools-\(UUID().uuidString)")
+    let bundle = dir.appendingPathComponent("bundle"), other = dir.appendingPathComponent("bin")
+    try? fm.createDirectory(at: bundle, withIntermediateDirectories: true)
+    try? fm.createDirectory(at: other, withIntermediateDirectories: true)
+    for d in [bundle, other] {
+        fm.createFile(atPath: d.appendingPathComponent("tool-x").path, contents: Data("#!/bin/sh\n".utf8), attributes: [.posixPermissions: 0o755])
+    }
+    let found = Tools.candidates("tool-x", preferred: nil, bundleDirs: [bundle.path], home: "/nonexistent", path: other.path)
+        .first { fm.isExecutableFile(atPath: $0) }
+    expectEqual(found, bundle.appendingPathComponent("tool-x").path)
+    try? fm.removeItem(at: dir)
+}
+
+func testDownloadLogic() {
+    expectEqual(DownloadLogic.rangeHeader(existing: 0), nil)
+    expectEqual(DownloadLogic.rangeHeader(existing: 500), "bytes=500-")
+    let r = DownloadLogic.parseContentRange("bytes 500-999/1000")
+    expect(r?.start == 500 && r?.total == 1000, "content range parsed: \(String(describing: r))")
+    let star = DownloadLogic.parseContentRange("bytes */1000")
+    expect(star?.start == nil && star?.total == 1000, "unsatisfied range parsed")
+    expect(DownloadLogic.parseContentRange("bytes 0-9/*")?.total == nil, "unknown total")
+    expect(DownloadLogic.parseContentRange(nil) == nil && DownloadLogic.parseContentRange("garbage") == nil, "bad ranges rejected")
+
+    expectEqual(DownloadLogic.plan(status: 206, existing: 500, contentRange: "bytes 500-999/1000", contentLength: 500), .append(total: 1000))
+    expectEqual(DownloadLogic.plan(status: 206, existing: 0, contentRange: "bytes 0-999/1000", contentLength: 1000), .append(total: 1000))
+    expectEqual(DownloadLogic.plan(status: 206, existing: 500, contentRange: "bytes 0-999/1000", contentLength: 1000), .restart(total: 1000))
+    if case .fail = DownloadLogic.plan(status: 206, existing: 500, contentRange: "bytes 300-999/1000", contentLength: 700) {} else {
+        expect(false, "a range from the wrong offset must fail")
+    }
+    expectEqual(DownloadLogic.plan(status: 200, existing: 500, contentRange: nil, contentLength: 1000), .restart(total: 1000))
+    expectEqual(DownloadLogic.plan(status: 200, existing: 0, contentRange: nil, contentLength: -1), .restart(total: nil))
+    expectEqual(DownloadLogic.plan(status: 416, existing: 1000, contentRange: "bytes */1000", contentLength: 0), .complete)
+    expectEqual(DownloadLogic.plan(status: 416, existing: 1200, contentRange: "bytes */1000", contentLength: 0), .restart(total: nil))
+    if case .fail(let m) = DownloadLogic.plan(status: 404, existing: 0, contentRange: nil, contentLength: 0) {
+        expect(m.contains("404"), "404 explained")
+    } else { expect(false, "404 must fail") }
+    if case .fail = DownloadLogic.plan(status: 503, existing: 0, contentRange: nil, contentLength: 0) {} else { expect(false, "503 must fail") }
+
+    expect(DownloadLogic.isComplete(size: 1000, total: 1000, minimum: 10), "complete")
+    expect(!DownloadLogic.isComplete(size: 999, total: 1000, minimum: 10), "short")
+    expect(!DownloadLogic.isComplete(size: 5, total: nil, minimum: 10), "below minimum")
+    expect(DownloadLogic.isComplete(size: 50, total: nil, minimum: 10), "unknown total, big enough")
+}
+
+/// Serves `MockFiles.payload`, honouring Range like Hugging Face does (or ignoring it).
+final class MockFiles: URLProtocol {
+    nonisolated(unsafe) static var payload = Data()
+    nonisolated(unsafe) static var honourRange = true
+    nonisolated(unsafe) static var status: Int?
+    nonisolated(unsafe) static var ranges: [String?] = []
+
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func stopLoading() {}
+    override func startLoading() {
+        let range = request.value(forHTTPHeaderField: "Range")
+        MockFiles.ranges.append(range)
+        let all = MockFiles.payload
+        var status = MockFiles.status ?? 200
+        var headers = ["Content-Type": "application/octet-stream"]
+        var body = all
+        if MockFiles.status == nil, MockFiles.honourRange, let range, let start = Int(range.dropFirst(6).dropLast()) {
+            if start >= all.count {
+                status = 416
+                headers["Content-Range"] = "bytes */\(all.count)"
+                body = Data()
+            } else {
+                status = 206
+                headers["Content-Range"] = "bytes \(start)-\(all.count - 1)/\(all.count)"
+                body = all.subdata(in: start..<all.count)
+            }
+        }
+        if status >= 400 && status != 416 { body = Data("error".utf8) }
+        headers["Content-Length"] = "\(body.count)"
+        let response = HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: "HTTP/1.1", headerFields: headers)!
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        // In pieces, like a real network.
+        var i = 0
+        while i < body.count {
+            client?.urlProtocol(self, didLoad: body.subdata(in: i..<min(i + 4096, body.count)))
+            i += 4096
+        }
+        client?.urlProtocolDidFinishLoading(self)
+    }
+}
+
+func testFileDownloader() async throws {
+    let fm = FileManager.default
+    let dir = fm.temporaryDirectory.appendingPathComponent("mn-download-\(UUID().uuidString)")
+    try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+    defer { try? fm.removeItem(at: dir) }
+    let config = URLSessionConfiguration.ephemeral
+    config.protocolClasses = [MockFiles.self]
+    let url = URL(string: "https://example.test/model.bin")!
+    let payload = Data((0..<50_000).map { UInt8($0 % 251) })
+    MockFiles.payload = payload
+
+    // Fresh download.
+    let dest = dir.appendingPathComponent("model.bin")
+    MockFiles.ranges = []
+    try await FileDownloader(configuration: config).download(url, to: dest, minimumSize: 1) { _, _ in }
+    expectEqual(try Data(contentsOf: dest), payload)
+    expectEqual(MockFiles.ranges, [nil])
+    expect(!fm.fileExists(atPath: DownloadLogic.partURL(dest).path), "part file is renamed when done")
+
+    // Resume: a partial file continues with a Range request.
+    let dest2 = dir.appendingPathComponent("resumed.bin")
+    try payload.prefix(12_345).write(to: DownloadLogic.partURL(dest2))
+    MockFiles.ranges = []
+    final class Last: @unchecked Sendable { var received: Int64 = 0; var total: Int64? }
+    let last = Last()
+    try await FileDownloader(configuration: config).download(url, to: dest2) { r, t in last.received = r; last.total = t }
+    expectEqual(MockFiles.ranges, ["bytes=12345-"])
+    expectEqual(try Data(contentsOf: dest2), payload)
+    expectEqual(last.received, Int64(payload.count))
+    expectEqual(last.total, Int64(payload.count))
+
+    // A server that ignores Range sends everything again: start over rather than append.
+    let dest3 = dir.appendingPathComponent("ignored.bin")
+    try Data(repeating: 7, count: 999).write(to: DownloadLogic.partURL(dest3))
+    MockFiles.honourRange = false
+    try await FileDownloader(configuration: config).download(url, to: dest3) { _, _ in }
+    MockFiles.honourRange = true
+    expectEqual(try Data(contentsOf: dest3), payload)
+
+    // Everything was already there (the app quit just before renaming).
+    let dest4 = dir.appendingPathComponent("complete.bin")
+    try payload.write(to: DownloadLogic.partURL(dest4))
+    try await FileDownloader(configuration: config).download(url, to: dest4) { _, _ in }
+    expectEqual(try Data(contentsOf: dest4), payload)
+
+    // Errors are explained, and what's downloaded so far is kept for the next try.
+    let dest5 = dir.appendingPathComponent("missing.bin")
+    try Data(repeating: 1, count: 10).write(to: DownloadLogic.partURL(dest5))
+    MockFiles.status = 404
+    do {
+        try await FileDownloader(configuration: config).download(url, to: dest5) { _, _ in }
+        expect(false, "404 must throw")
+    } catch {
+        expect(error.localizedDescription.contains("404"), "404 message: \(error.localizedDescription)")
+    }
+    MockFiles.status = nil
+    expect(!fm.fileExists(atPath: dest5.path), "no file after a failed download")
+    expectEqual((try? Data(contentsOf: DownloadLogic.partURL(dest5)))?.count, 10)
+
+    // Too small for what was asked: not accepted as the model.
+    let dest6 = dir.appendingPathComponent("small.bin")
+    do {
+        try await FileDownloader(configuration: config).download(url, to: dest6, minimumSize: 1_000_000) { _, _ in }
+        expect(false, "too small must throw")
+    } catch {
+        expect(!fm.fileExists(atPath: dest6.path), "too small isn't kept as the model")
+    }
+}
+
+func testProviderSetup() {
+    expectEqual(ProviderSetup.claudeLoggedIn(#"{"loggedIn": true, "authMethod": "claude.ai"}"#), true)
+    expectEqual(ProviderSetup.claudeLoggedIn("warning: something\n{\"loggedIn\": false}"), false)
+    expectEqual(ProviderSetup.claudeLoggedIn("error: unknown command 'auth'"), nil)
+    expectEqual(ProviderSetup.firstURL(in: "Opening browser...\nIf it didn't open, visit: https://claude.ai/oauth/authorize?x=1&y=2\n")?.absoluteString,
+                "https://claude.ai/oauth/authorize?x=1&y=2")
+    expectEqual(ProviderSetup.firstURL(in: "no links here"), nil)
+    expect(ProviderSetup.codexArchive.url.absoluteString.hasSuffix("\(ProviderSetup.codexArchive.binary).tar.gz"), "codex archive name")
+
+    let p = Ollama.pullProgress(#"{"status":"pulling abc","digest":"sha256:abc","total":2000,"completed":500}"#)
+    expect(p?.status == "pulling abc" && p?.completed == 500 && p?.total == 2000 && p?.error == nil, "pull progress")
+    expectEqual(Ollama.pullProgress(#"{"error":"pull model manifest: file does not exist"}"#)?.error, "pull model manifest: file does not exist")
+    expect(Ollama.pullProgress("not json") == nil, "bad line ignored")
+}
+
+func testAppLocation() throws {
+    expect(AppLocation.needsMove("/Volumes/Meeting Notes/Meeting Notes.app"), "running from the disk image")
+    expect(AppLocation.needsMove("/private/var/folders/xy/T/AppTranslocation/1234/d/Meeting Notes.app"), "translocated")
+    expect(!AppLocation.needsMove("/Applications/Meeting Notes.app"), "installed")
+    expect(!AppLocation.needsMove("/Users/a/Applications/Meeting Notes.app"), "installed for one user")
+
+    let f = FileManager.default.temporaryDirectory.appendingPathComponent("mn-quarantine-\(UUID().uuidString)")
+    try Data("x".utf8).write(to: f)
+    defer { try? FileManager.default.removeItem(at: f) }
+    let value = "0081;00000000;Safari;"
+    _ = setxattr(f.path, "com.apple.quarantine", value, value.utf8.count, 0, 0)
+    expect(getxattr(f.path, "com.apple.quarantine", nil, 0, 0, 0) > 0, "flag set for the test")
+    AppLocation.clearQuarantine([f, f.appendingPathExtension("missing")])
+    expect(getxattr(f.path, "com.apple.quarantine", nil, 0, 0, 0) < 0, "quarantine flag removed")
+}
+
 @main
 struct TestMain {
     static func main() async {
@@ -580,6 +782,11 @@ struct TestMain {
         do { try testMCPServer() } catch { expect(false, "MCP server threw: \(error)") }
         testOllamaRequest()
         do { try await testOllamaProvider() } catch { expect(false, "ollama threw: \(error)") }
+        testToolLookupOrder()
+        testDownloadLogic()
+        do { try await testFileDownloader() } catch { expect(false, "downloader threw: \(error)") }
+        testProviderSetup()
+        do { try testAppLocation() } catch { expect(false, "app location threw: \(error)") }
         print("\(checks - failures)/\(checks) checks passed")
         exit(failures == 0 ? 0 : 1)
     }
