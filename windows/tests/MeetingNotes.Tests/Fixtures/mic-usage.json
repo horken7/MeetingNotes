@@ -1,0 +1,14 @@
+{
+  "_comment": "Entries as read from HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\CapabilityAccessManager\\ConsentStore\\microphone (FILETIME values). LastUsedTimeStop 0 = the app has the mic open now.",
+  "entries": [
+    { "key": "MSTeams_8wekyb3d8bbwe", "nonPackaged": false, "start": 133748000000000000, "stop": 0 },
+    { "key": "Microsoft.WindowsSoundRecorder_8wekyb3d8bbwe", "nonPackaged": false, "start": 133700000000000000, "stop": 133700000100000000 },
+    { "key": "Microsoft.549981C3F5F10_8wekyb3d8bbwe", "nonPackaged": false, "start": 133748000500000000, "stop": 0 },
+    { "key": "C:#Program Files#Google#Chrome#Application#chrome.exe", "nonPackaged": true, "start": 133748000900000000, "stop": 0 },
+    { "key": "C:#Users#anna#AppData#Roaming#Zoom#bin#Zoom.exe", "nonPackaged": true, "start": 133740000000000000, "stop": 133740000500000000 },
+    { "key": "C:#Users#anna#AppData#Local#Programs#MeetingNotes#MeetingNotes.exe", "nonPackaged": true, "start": 133748000950000000, "stop": 0 },
+    { "key": "C:#Windows#System32#svchost.exe", "nonPackaged": true, "start": 133748000960000000, "stop": 0 },
+    { "key": "C:#Program Files#Crashed#crashed.exe", "nonPackaged": true, "start": 133748000970000000, "stop": 0 },
+    { "key": "C:#Program Files#Contoso#Contoso Call.exe", "nonPackaged": true, "start": 0, "stop": 0 }
+  ]
+}

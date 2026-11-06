@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- meetingnotes-mcp.exe: the read-only MCP server (stdio) for Claude Desktop and other AI apps. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <AssemblyName>meetingnotes-mcp</AssemblyName>
+    <RootNamespace>MeetingNotes.Mcp</RootNamespace>
+    <InvariantGlobalization>false</InvariantGlobalization>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\MeetingNotes.Core\MeetingNotes.Core.csproj" />
+  </ItemGroup>
+</Project>

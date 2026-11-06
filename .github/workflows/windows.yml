@@ -1,0 +1,63 @@
+name: Windows
+
+# Builds and tests the Windows app (windows/) and makes MeetingNotes-Setup.exe. On a v* tag the installer is
+# uploaded to that GitHub Release, next to the Mac .dmg from the Mac release job.
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+    paths:
+      - "windows/**"
+      - "LICENSE"
+      - ".github/workflows/windows.yml"
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+      - name: Version
+        shell: pwsh
+        run: |
+          $v = "1.0.0"
+          if ($env:GITHUB_REF -like "refs/tags/v*") { $v = $env:GITHUB_REF_NAME.Substring(1) }
+          "VERSION=$v" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+      - name: Build, test and make the installer
+        shell: pwsh
+        run: ./windows/build.ps1 -Version $env:VERSION
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MeetingNotes-Setup
+          path: windows/artifacts/MeetingNotes-Setup.exe
+          if-no-files-found: error
+
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: MeetingNotes-Setup
+          path: dist
+      - name: Upload to the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          # The Mac job may create the release at the same moment: create it only if missing,
+          # and accept losing that race.
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" --title "Meeting Notes ${TAG#v}" --generate-notes \
+              || gh release view "$TAG" >/dev/null
+          fi
+          gh release upload "$TAG" dist/MeetingNotes-Setup.exe --clobber
