@@ -29,6 +29,9 @@ model with [Ollama](https://ollama.com).
   </picture>
 </p>
 
+**Windows:** a native Windows version is in [`windows/`](windows/README.md), with an installer (`MeetingNotes-Setup.exe`
+on the [Releases](https://github.com/horken7/MeetingNotes/releases) page). It writes the same meeting folders.
+
 Each meeting gets its own folder with `transcript.md`, `notes.md` (Summary, Decisions, Action items, Open questions,
 Key points), the audio as 16 kHz WAV, and `meta.json`.
 

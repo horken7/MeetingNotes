@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
+    <SupportedOSPlatformVersion>10.0.17763.0</SupportedOSPlatformVersion>
+    <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
+    <AssemblyName>MeetingNotes</AssemblyName>
+    <RootNamespace>MeetingNotes</RootNamespace>
+    <ApplicationIcon>Assets\app.ico</ApplicationIcon>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <NoWarn>$(NoWarn);CA1416;WFAC010</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- WPF and Windows Forms both define Application, MessageBox… Use WPF's unless named. -->
+    <Using Remove="System.Windows.Forms" />
+    <Using Remove="System.Drawing" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="NAudio.Wasapi" Version="2.2.1" />
+    <PackageReference Include="Microsoft.Toolkit.Uwp.Notifications" Version="7.1.3" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\MeetingNotes.Core\MeetingNotes.Core.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <Resource Include="Assets\app.ico" />
+    <Content Include="Assets\icon.png" Link="icon.png" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,13 @@
+<Project>
+  <PropertyGroup>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Version>1.0.0</Version>
+    <Company>Meeting Notes</Company>
+    <Product>Meeting Notes</Product>
+    <Copyright>MIT License</Copyright>
+    <!-- The Windows-only projects can be compiled (not run) on macOS and Linux too. -->
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+  </PropertyGroup>
+</Project>
