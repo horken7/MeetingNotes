@@ -13,6 +13,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -77,28 +78,41 @@ fun SettingsScreen(settings: Settings, onBack: () -> Unit) {
 
             HorizontalDivider()
             Section("Speech recognition")
-            var whisper by remember { mutableStateOf(settings.whisperChoice) }
-            Catalog.whisperModels.forEach { m ->
-                ModelChoice(m, whisper == m.id, tick, onSelect = { whisper = m.id; settings.whisperChoice = m.id },
-                    onDelete = { Models.delete(m); refresh++ })
+            Text("Built in: ${Catalog.whisperSwedish.label} for Swedish, and ${Catalog.whisperMultilingual.label} " +
+                "for Danish, English and other languages. With Automatic, the language is detected first.",
+                style = MaterialTheme.typography.bodyMedium)
+            Text("Other languages than Swedish", style = MaterialTheme.typography.bodyLarge)
+            var fast by remember { mutableStateOf(settings.fastSpeech) }
+            Choice("Accurate (built in)", "Whisper large-v3-turbo. Takes about as long as the meeting on a recent phone.", !fast) {
+                fast = false; settings.fastSpeech = false
             }
+            val small = Catalog.whisperFast
+            ModelChoice(small, fast, tick,
+                onSelect = {
+                    fast = true; settings.fastSpeech = true
+                    if (!Models.isReady(small)) MeetingService.download(context, listOf(small.id))
+                },
+                onDelete = { Models.delete(small); fast = false; settings.fastSpeech = false; refresh++ })
 
             HorizontalDivider()
             Section("Notes model")
             val ram = settings.totalRamBytes
-            val auto = Catalog.defaultNotesModel(ram)
             Text("This phone has ${Catalog.size(ram)} of memory." +
-                (auto?.let { " Automatic uses ${it.label}." } ?: " That's not enough for a notes model; you'll get transcripts only."),
+                (if (ram < Catalog.gemma1b.minRamBytes) " That's probably not enough for a notes model; you may get transcripts only." else ""),
                 style = MaterialTheme.typography.bodySmall)
-            var notesChoice by remember { mutableStateOf(settings.notesChoice) }
-            Choice("Automatic", "Picks the best model this phone can run.", notesChoice == "auto") { notesChoice = "auto"; settings.notesChoice = "auto" }
-            Catalog.notesModels.forEach { m ->
-                val tooBig = ram < m.minRamBytes
-                ModelChoice(m, notesChoice == m.id, tick, warning = if (tooBig) "Probably too large for this phone." else null,
-                    onSelect = { notesChoice = m.id; settings.notesChoice = m.id }, onDelete = { Models.delete(m); refresh++ })
+            var notesChoice by remember { mutableStateOf(if (settings.notesChoice == Catalog.gemma4b.id) Catalog.gemma4b.id else "auto") }
+            Choice(Catalog.gemma1b.label, Catalog.gemma1b.description, notesChoice == "auto") {
+                notesChoice = "auto"; settings.notesChoice = "auto"
             }
-            Text("Gemma 3 is made by Google and used under the Gemma Terms of Use (ai.google.dev/gemma/terms). " +
-                "Speech recognition is OpenAI's Whisper (MIT licence) running in whisper.cpp.",
+            val big = Catalog.gemma4b
+            ModelChoice(big, notesChoice == big.id, tick,
+                warning = if (ram < big.minRamBytes) "Probably too large for this phone." else null,
+                onSelect = {
+                    notesChoice = big.id; settings.notesChoice = big.id
+                    if (!Models.isReady(big)) MeetingService.download(context, listOf(big.id))
+                },
+                onDelete = { Models.delete(big); notesChoice = "auto"; settings.notesChoice = "auto"; refresh++ })
+            Text("Until ${big.label.substringBefore(" (")} is downloaded, notes are written with the built-in model.",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 
             HorizontalDivider()
@@ -122,12 +136,36 @@ fun SettingsScreen(settings: Settings, onBack: () -> Unit) {
 
             HorizontalDivider()
             Text("Everything happens on this phone: recordings, transcripts and notes never leave it unless you share them. " +
-                "The internet is only used once, to download the models.",
+                "The models are built into the app; the internet is only used if you download one of the optional models.",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             processing?.takeIf { it.meetingId == null }?.let { p ->
                 Text(p.phase, style = MaterialTheme.typography.bodySmall)
                 p.fraction?.let { LinearProgressIndicator(progress = { it }, Modifier.fillMaxWidth()) }
                 TextButton(onClick = { MeetingService.cancel(context) }) { Text("Stop download") }
+            }
+
+            HorizontalDivider()
+            Section("Licences")
+            Text("Gemma is provided under and subject to the Gemma Terms of Use found at ai.google.dev/gemma/terms. " +
+                "By using the app you agree not to use Gemma for the restricted uses in Section 3.2 of those terms " +
+                "(the Gemma Prohibited Use Policy) or against the law.",
+                style = MaterialTheme.typography.bodySmall)
+            var legal by remember { mutableStateOf<Pair<String, String>?>(null) }
+            Row {
+                TextButton(onClick = { legal = "Gemma Terms of Use" to "legal/gemma-terms-of-use.txt" }) { Text("Gemma Terms of Use") }
+                TextButton(onClick = { legal = "Gemma Prohibited Use Policy" to "legal/gemma-prohibited-use-policy.txt" }) { Text("Prohibited uses") }
+            }
+            Text("KB-Whisper: National Library of Sweden (KBLab), Apache License 2.0. Whisper: OpenAI, MIT License. " +
+                "Silero VAD: MIT License. whisper.cpp and llama.cpp: The ggml authors, MIT License.",
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            legal?.let { (title, asset) ->
+                val text = remember(asset) { context.assets.open(asset).bufferedReader().use { it.readText() } }
+                AlertDialog(
+                    onDismissRequest = { legal = null },
+                    title = { Text(title) },
+                    text = { Text(text, Modifier.verticalScroll(rememberScrollState()), style = MaterialTheme.typography.bodySmall) },
+                    confirmButton = { TextButton(onClick = { legal = null }) { Text("Close") } },
+                )
             }
         }
     }

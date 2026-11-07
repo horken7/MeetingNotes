@@ -27,8 +27,14 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v4
 
+      # The speech and notes models built into the APK (about 1.6 GB), downloaded by Gradle and checked by SHA-256.
+      - uses: actions/cache@v4
+        with:
+          path: android/model-cache/assets
+          key: bundled-models-${{ hashFiles('android/bundled-models.txt') }}
+
       - name: Unit tests
-        run: ./gradlew --no-daemon :app:testDebugUnitTest
+        run: ./gradlew --no-daemon :app:testDebugUnitTest -PnoBundledModels
 
       # Signs with the repository's release key when the secrets are set (so updates install over older
       # versions), otherwise with a throwaway debug key.
@@ -55,12 +61,15 @@ jobs:
           cp app/build/outputs/apk/release/app-release.apk MeetingNotes.apk
           "$ANDROID_HOME"/build-tools/*/apksigner verify --print-certs MeetingNotes.apk | head -3 || true
           ls -l MeetingNotes.apk
+          # GitHub release assets must be under 2 GiB.
+          test "$(stat -c%s MeetingNotes.apk)" -lt 2147483648
 
       - uses: actions/upload-artifact@v4
         with:
           name: MeetingNotes-android
           path: android/MeetingNotes.apk
           if-no-files-found: error
+          compression-level: 0   # the models are already compressed
 
       - name: Attach to release
         if: startsWith(github.ref, 'refs/tags/v')

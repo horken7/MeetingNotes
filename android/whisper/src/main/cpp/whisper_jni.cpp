@@ -5,6 +5,8 @@
 #include <cstring>
 #include <string>
 #include <thread>
+#include <vector>
+#include <cstdio>
 #include "whisper.h"
 
 #define TAG "MeetingNotesWhisper"
@@ -40,19 +42,59 @@ jbyteArray bytes(JNIEnv *env, const char *s) {
 
 extern "C" {
 
+// Loads a model from [offset, offset + length) of a file: a downloaded model, or one stored uncompressed in the APK.
 JNIEXPORT jlong JNICALL
-Java_com_horken7_meetingnotes_whisper_WhisperLib_nativeInit(JNIEnv *env, jobject, jstring jpath) {
+Java_com_horken7_meetingnotes_whisper_WhisperLib_nativeInit(JNIEnv *env, jobject, jstring jpath, jlong offset, jlong length) {
     whisper_log_set(log_cb, nullptr);
     const char *path = env->GetStringUTFChars(jpath, nullptr);
+    FILE *f = fopen(path, "rb");
+    env->ReleaseStringUTFChars(jpath, path);
+    if (!f) return 0;
+    if (fseeko(f, (off_t) offset, SEEK_SET) != 0) { fclose(f); return 0; }
+
+    struct Reader { FILE *f; int64_t left; } reader{f, length};
+    whisper_model_loader loader{};
+    loader.context = &reader;
+    loader.read = [](void *ctx, void *out, size_t n) -> size_t {
+        auto *r = static_cast<Reader *>(ctx);
+        if ((int64_t) n > r->left) n = (size_t) r->left;
+        const size_t got = fread(out, 1, n, r->f);
+        r->left -= (int64_t) got;
+        return got;
+    };
+    loader.eof = [](void *ctx) -> bool {
+        auto *r = static_cast<Reader *>(ctx);
+        return r->left <= 0 || feof(r->f);
+    };
+    loader.close = [](void *) {};
+
     whisper_context_params cp = whisper_context_default_params();
     cp.use_gpu = false;
     cp.flash_attn = true;
-    whisper_context *ctx = whisper_init_from_file_with_params(path, cp);
-    env->ReleaseStringUTFChars(jpath, path);
+    whisper_context *ctx = whisper_init_with_params(&loader, cp);
+    fclose(f);
     if (!ctx) return 0;
     auto *h = new Handle();
     h->ctx = ctx;
     return reinterpret_cast<jlong>(h);
+}
+
+// The most likely language of up to 30 s of samples, as "code:probability" (e.g. "sv:0.93"), or null.
+JNIEXPORT jstring JNICALL
+Java_com_horken7_meetingnotes_whisper_WhisperLib_nativeDetectLanguage(JNIEnv *env, jobject, jlong handle, jfloatArray jsamples, jint threads) {
+    auto *h = reinterpret_cast<Handle *>(handle);
+    if (!h) return nullptr;
+    const jsize n = env->GetArrayLength(jsamples);
+    jfloat *samples = env->GetFloatArrayElements(jsamples, nullptr);
+    const int rc = whisper_pcm_to_mel(h->ctx, samples, n, threads);
+    env->ReleaseFloatArrayElements(jsamples, samples, JNI_ABORT);
+    if (rc != 0) return nullptr;
+    std::vector<float> probs(whisper_lang_max_id() + 1, 0.0f);
+    const int id = whisper_lang_auto_detect(h->ctx, 0, threads, probs.data());
+    if (id < 0) return nullptr;
+    char out[32];
+    snprintf(out, sizeof(out), "%s:%.3f", whisper_lang_str(id), probs[id]);
+    return env->NewStringUTF(out);
 }
 
 JNIEXPORT void JNICALL

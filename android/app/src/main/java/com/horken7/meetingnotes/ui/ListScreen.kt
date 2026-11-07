@@ -173,21 +173,24 @@ fun Banner(text: String, onDismiss: () -> Unit) {
     }
 }
 
-/** Shown until the speech and notes models are downloaded, so the first meeting doesn't wait for them. */
+/**
+ * Shown while a model the next meeting needs isn't on the phone: the larger notes model the user picked, or every
+ * model in a build made without them built in.
+ */
 @Composable
 private fun SetupCard(settings: Settings, processing: com.horken7.meetingnotes.ProcessingState?, version: Int) {
     val context = LocalContext.current
     val needed = remember(version, processing) {
-        listOfNotNull(settings.whisperModel, Catalog.vad, settings.notesModel).filterNot { Models.isReady(it) }
+        (Catalog.speechModels + listOfNotNull(settings.notesModel)).filterNot { Models.isReady(it) }
     }
     if (needed.isEmpty()) return
     val downloading = processing != null && processing.meetingId == null
     Card(Modifier.fillMaxWidth().padding(16.dp, 8.dp)) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("Before your first meeting", style = MaterialTheme.typography.titleMedium)
             val total = needed.sumOf { it.bytes }
-            Text("Download the speech and notes models once (${Catalog.size(total)}). Wi-Fi is best. " +
-                "After that, everything works offline and nothing leaves the phone.",
+            Text(if (needed.size == 1) needed[0].label else "Speech and notes models", style = MaterialTheme.typography.titleMedium)
+            Text("Download once (${Catalog.size(total)}), Wi-Fi is best. Until then the built-in models are used. " +
+                "Nothing about your meetings leaves the phone.",
                 style = MaterialTheme.typography.bodyMedium)
             if (settings.notesModel == null) {
                 Text("This phone doesn't have enough memory for the notes model, so you'll get transcripts without notes.",

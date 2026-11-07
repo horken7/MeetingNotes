@@ -6,3 +6,4 @@ local.properties
 .cxx/
 .kotlin/
 *.keystore
+model-cache/

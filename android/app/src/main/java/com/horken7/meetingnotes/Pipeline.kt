@@ -3,6 +3,7 @@ package com.horken7.meetingnotes
 import android.util.Log
 import com.horken7.meetingnotes.core.AudioBlocks
 import com.horken7.meetingnotes.core.Catalog
+import com.horken7.meetingnotes.core.LanguageVote
 import com.horken7.meetingnotes.core.Meta
 import com.horken7.meetingnotes.core.ModelFile
 import com.horken7.meetingnotes.core.Segment
@@ -62,29 +63,39 @@ class Pipeline(
         if (!Models.cpuSupported) throw UserFacingException(Models.cpuMessage)
         Wav.repair(audio)
 
-        val speech = settings.whisperModel
-        ensure(speech, "Downloading the speech model")
-        ensure(Catalog.vad, "Downloading the speech model")
-        report("Transcribing", 0f)
+        if (!Catalog.speechModels.all { Models.isReady(it) }) {
+            ensure(Catalog.whisperMultilingual, "Downloading the speech model")
+            ensure(Catalog.whisperSwedish, "Downloading the speech model")
+            ensure(Catalog.vad, "Downloading the speech model")
+        }
+        val vad = Models.path(Catalog.vad)
         val total = Wav.sampleCount(audio)
         val rate = Wav.SAMPLE_RATE.toLong()
         val blocks = AudioBlocks.plan(total, target = 10 * 60 * rate, window = 15 * rate) { start, length ->
             Wav.rms(Wav.read(audio, start, length.toInt()))
         }
 
-        val model = WhisperModel.load(Models.file(speech).path)
-            ?: throw UserFacingException("The speech model couldn't be loaded. Delete it in Settings and download it again.")
-        val segments = ArrayList<Segment>()
+        // Swedish goes to KB-Whisper, everything else to Whisper large-v3-turbo (or small, if the user chose speed
+        // and downloaded it), which also detects the language.
+        val fast = settings.fastSpeech && Models.isReady(Catalog.whisperFast)
         var language = settings.language
+        if (language == "auto") {
+            report("Detecting the language", null)
+            language = detectLanguage(audio, total, if (fast) Catalog.whisperFast else Catalog.whisperMultilingual) ?: "auto"
+        }
+        val speech = Catalog.speechModel(language, fast)
+        report("Transcribing", 0f)
+        val model = load(speech)
+        val segments = ArrayList<Segment>()
         try {
             cancel.onCancel = { model.cancel() }
             blocks.forEachIndexed { i, block ->
                 cancel.check()
                 val samples = Wav.read(audio, block.first, (block.last - block.first + 1).toInt())
-                val out = model.transcribe(samples, language, threads, Models.file(Catalog.vad).path) { pct ->
+                val out = model.transcribe(samples, language, threads, vad) { pct ->
                     report("Transcribing", (i + pct / 100f) / blocks.size)
                 } ?: run { cancel.check(); throw UserFacingException("Transcription failed. Press Retry to try again.") }
-                // Keep the language whisper heard first, so it doesn't switch midway.
+                // When detection was unsure, keep the language whisper heard first, so it doesn't switch midway.
                 if (language == "auto") model.language?.let { language = it }
                 val offset = block.first.toDouble() / rate
                 out.forEach { segments.add(Segment(offset + it.startMs / 1000.0, it.text)) }
@@ -113,10 +124,13 @@ class Pipeline(
             "This phone has ${Catalog.size(ram)} of memory, which isn't enough for the on-device notes model " +
                 "(it needs about ${Catalog.size(Catalog.gemma1b.minRamBytes)}). The transcript is kept.")
         if (!Models.cpuSupported) throw UserFacingException(Models.cpuMessage)
-        ensure(choice, "Downloading the notes model")
+        // The larger model once it's downloaded; until then (or offline) the built-in one.
+        val use = if (Models.isReady(choice)) choice else Catalog.gemma1b
+        ensure(use, "Downloading the notes model")
         report("Writing notes", null)
 
-        val model = LlamaModel.load(Models.file(choice).path, CONTEXT, threads) ?: throw UserFacingException(
+        val src = Models.source(use) ?: throw UserFacingException("The notes model is missing. Reinstall the app.")
+        val model = LlamaModel.load(src.path, src.offset, CONTEXT, threads) ?: throw UserFacingException(
             "The notes model couldn't be loaded, probably because the phone ran out of memory. The transcript is kept: " +
                 "close other apps and press Regenerate notes, or pick the smaller notes model in Settings.")
         val meta = Store.readMeta(folder) ?: Meta(title = folder.name)
@@ -154,6 +168,36 @@ class Pipeline(
         }
         if (notes.isBlank()) throw UserFacingException("The notes model returned nothing. The transcript is kept; press Regenerate notes.")
         Store.writeAtomic(File(folder, "notes.md"), "# ${meta.title}\n\n$notes\n")
+    }
+
+    private fun load(m: ModelFile): WhisperModel {
+        val src = Models.source(m) ?: throw UserFacingException("The speech model is missing. Reinstall the app.")
+        return WhisperModel.load(src.path, src.offset, src.length)
+            ?: throw UserFacingException("The speech model couldn't be loaded. Reinstall the app.")
+    }
+
+    /**
+     * Guesses the language with a multilingual Whisper model on the three loudest 30-second stretches of the first
+     * ten minutes, so a quiet start doesn't decide it. Null when it can't tell.
+     */
+    private fun detectLanguage(audio: File, total: Long, detector: ModelFile): String? {
+        val window = 30L * Wav.SAMPLE_RATE
+        if (total < Wav.SAMPLE_RATE) return null
+        val searched = minOf(total, 10L * 60 * Wav.SAMPLE_RATE)
+        val starts = (0 until maxOf(1, searched - window + 1) step window).toList()
+            .sortedByDescending { Wav.rms(Wav.read(audio, it, minOf(window, total - it).toInt())) }
+            .take(3)
+        val model = load(detector)
+        try {
+            val guesses = starts.mapNotNull { start ->
+                cancel.check()
+                model.detectLanguage(Wav.read(audio, start, minOf(window, total - start).toInt()), threads)
+            }
+            Log.i(TAG, "language guesses: $guesses")
+            return LanguageVote.pick(guesses)
+        } finally {
+            model.close()
+        }
     }
 
     private fun ensure(m: ModelFile, phase: String) {
