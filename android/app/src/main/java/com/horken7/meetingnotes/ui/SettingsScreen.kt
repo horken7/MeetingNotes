@@ -115,7 +115,7 @@ fun SettingsScreen(settings: Settings, onBack: () -> Unit) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text("Keep audio recordings", style = MaterialTheme.typography.bodyLarge)
-                    Text("Needed to redo a transcript. About 115 MB per hour.", style = MaterialTheme.typography.bodySmall)
+                    Text("When off, the audio is deleted as soon as the transcript is ready. Keep it to redo a transcript (about 115 MB per hour).", style = MaterialTheme.typography.bodySmall)
                 }
                 Switch(keep, { keep = it; settings.keepAudio = it })
             }

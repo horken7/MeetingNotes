@@ -40,7 +40,7 @@ func registerDefaults() {
         Keys.autoDetect: true,
         Keys.autoStart: false,
         Keys.autoStop: true,
-        Keys.keepAudio: true,
+        Keys.keepAudio: false,
         Keys.outputDir: (NSHomeDirectory() as NSString).appendingPathComponent("Documents/Meetings"),
         Keys.ignoredApps: [String](),
         Keys.promptStyle: "notification",

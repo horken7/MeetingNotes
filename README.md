@@ -37,7 +37,8 @@ model with [Ollama](https://ollama.com).
 on the [Releases](https://github.com/horken7/MeetingNotes/releases) page). It writes the same meeting folders.
 
 Each meeting gets its own folder with `transcript.md`, `notes.md` (Summary, Decisions, Action items, Open questions,
-Key points), the audio as 16 kHz WAV, and `meta.json`.
+Key points) and `meta.json`. The audio is deleted as soon as the transcript is ready, unless you turn on
+**Keep audio recordings** in Settings (then it's kept as 16 kHz WAV, which lets you redo the transcript).
 
 **In-person meetings on your phone:** the [Android app](android/README.md) and the [iPhone app](ios/README.md) record
 with the phone's microphone and make the transcript and notes on the phone, offline.

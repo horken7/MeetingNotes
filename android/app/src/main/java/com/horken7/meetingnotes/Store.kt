@@ -116,7 +116,7 @@ class Settings(context: Context) {
         set(v) = prefs.edit().putString("notesInstructions", if (v.trim() == Prompts.defaultInstructions) "" else v).apply()
 
     var keepAudio: Boolean
-        get() = prefs.getBoolean("keepAudio", true)
+        get() = prefs.getBoolean("keepAudio", false)
         set(v) = prefs.edit().putBoolean("keepAudio", v).apply()
 
     val totalRamBytes: Long get() = totalRam

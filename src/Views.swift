@@ -578,7 +578,7 @@ struct SettingsView: View {
     @AppStorage(Keys.autoStart) private var autoStart = false
     @AppStorage(Keys.autoStop) private var autoStop = true
     @AppStorage(Keys.promptStyle) private var promptStyle = "notification"
-    @AppStorage(Keys.keepAudio) private var keepAudio = true
+    @AppStorage(Keys.keepAudio) private var keepAudio = false
     @AppStorage(Keys.outputDir) private var outputDir = ""
     @AppStorage(Keys.notesProvider) private var notesProvider = NotesProvider.claude.rawValue
     @AppStorage(Keys.claudePath) private var claudePath = ""
@@ -674,7 +674,10 @@ struct SettingsView: View {
                         Text(outputDir).lineLimit(1).truncationMode(.middle).foregroundStyle(.secondary)
                         Button("Choose…") { chooseFolder() }
                     }
-                    Toggle("Keep audio recordings", isOn: $keepAudio)
+                    Toggle(isOn: $keepAudio) {
+                        Text("Keep audio recordings")
+                        Text("When off, the audio is deleted as soon as the transcript is ready.")
+                    }
                 }
                 Section("Setup") {
                     HStack {
