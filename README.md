@@ -247,7 +247,7 @@ open -a "Meeting Notes" --args -captureScreenshots "$PWD/docs/images" -outputDir
 
 The downloadable app is built by `.github/workflows/release-mac.yml` on every `v*` tag (and as an artifact on pull
 requests): `packaging/build-whisper.sh` builds a static, universal `whisper-cli` from a pinned whisper.cpp release,
-`packaging/build-app.sh` bundles it with the app and the MCP server, and `packaging/make-dmg.sh` makes the disk image.
+`packaging/fetch-models.sh` downloads the speech models from pinned revisions (checksums verified), `packaging/build-app.sh` bundles them and whisper-cli with the app and the MCP server, and `packaging/make-dmg.sh` makes the disk image.
 
 `docs/VERIFY.md` is the manual end-to-end checklist (permissions, recording, languages, auto-detection, robustness).
 

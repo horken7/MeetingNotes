@@ -40,9 +40,30 @@ enum NotesProvider: String, CaseIterable {
 enum Tools {
     static let home = NSHomeDirectory()
     static var dataDir: URL { URL(fileURLWithPath: home).appendingPathComponent(".meetnotes") }
-    static var model: URL { dataDir.appendingPathComponent("ggml-large-v3-turbo.bin") }
-    static var vadModel: URL { dataDir.appendingPathComponent("ggml-silero-v5.1.2.bin") }
+    // Keep the names in sync with packaging/fetch-models.sh and install.sh.
+    static let modelName = "ggml-large-v3-turbo.bin"
+    static let vadModelName = "ggml-silero-v5.1.2.bin"
+    /// The downloadable app carries the speech models in Contents/Resources/models.
+    static var bundledModelsDir: URL? { Bundle.main.resourceURL?.appendingPathComponent("models") }
+
+    /// The bundled copy of a model when there is one, else the one in ~/.meetnotes (placed there by
+    /// install.sh or downloaded by setup). Pure, so the order is tested.
+    static func modelPath(_ name: String, bundleDir: URL?, dataDir: URL, exists: (String) -> Bool) -> URL {
+        if let bundled = bundleDir?.appendingPathComponent(name), exists(bundled.path) { return bundled }
+        return dataDir.appendingPathComponent(name)
+    }
+    private static func resolved(_ name: String) -> URL {
+        modelPath(name, bundleDir: bundledModelsDir, dataDir: dataDir) { FileManager.default.fileExists(atPath: $0) }
+    }
+    static var model: URL { resolved(modelName) }
+    static var vadModel: URL { resolved(vadModelName) }
+    /// Where setup downloads the models when the app doesn't carry them.
+    static var downloadedModel: URL { dataDir.appendingPathComponent(modelName) }
+    static var downloadedVADModel: URL { dataDir.appendingPathComponent(vadModelName) }
     static var modelInstalled: Bool { FileManager.default.fileExists(atPath: model.path) }
+    static var modelBundled: Bool {
+        bundledModelsDir.map { FileManager.default.fileExists(atPath: $0.appendingPathComponent(modelName).path) } ?? false
+    }
     /// The MCP server: the copy inside the app bundle (DMG install), else the one install.sh builds.
     static var mcpServer: URL {
         bundled("meetingnotes-mcp").map(URL.init(fileURLWithPath:)) ?? dataDir.appendingPathComponent("bin/meetingnotes-mcp")
