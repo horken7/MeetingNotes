@@ -92,7 +92,7 @@ public sealed class Pipeline
         if (!File.Exists(WhisperPath))
             throw new PipelineException("The transcription program (whisper-cli.exe) is missing. Reinstall Meeting Notes.");
         if (!File.Exists(ModelPath))
-            throw new PipelineException("The speech model is missing. Open Settings > Setup and download it, then press Retry.");
+            throw new PipelineException("The speech model is missing. Reinstall Meeting Notes, or download it under Settings > Setup, then press Retry.");
 
         // whisper-cli reads its arguments in the Windows ANSI code page, so a meeting called "Möte" or a user folder
         // like C:\Users\Åsa could break the paths: run it in the meeting folder with relative names, and pass the

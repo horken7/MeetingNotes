@@ -99,7 +99,7 @@ public partial class MainWindow : Window
         Banners.Children.Clear();
         if (model.Banner is { } msg) Banners.Children.Add(Banner(msg, Color.FromRgb(255, 243, 224), () => model.SetBanner(null)));
         if (!AppPaths.ModelInstalled)
-            Banners.Children.Add(Banner("The speech model isn't downloaded yet, so meetings can't be transcribed. Open Settings > Setup to download it.",
+            Banners.Children.Add(Banner("The speech model is missing, so meetings can't be transcribed. Reinstall Meeting Notes, or download it in the setup assistant.",
                 Color.FromRgb(255, 235, 238), null, "Open setup", () => new SetupWindow { Owner = this }.Show()));
     }
 

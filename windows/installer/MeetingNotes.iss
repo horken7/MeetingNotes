@@ -50,7 +50,9 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 Name: "desktopicon"; Description: "Create a desktop shortcut"; Flags: unchecked
 
 [Files]
-Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: recursesubdirs ignoreversion
+Source: "{#SourceDir}\*"; DestDir: "{app}"; Excludes: "\models\*"; Flags: recursesubdirs ignoreversion
+; The speech models (about 1.6 GB) barely compress, so they're stored as they are: LZMA would take long and gain little.
+Source: "{#SourceDir}\models\*"; DestDir: "{app}\models"; Flags: ignoreversion nocompression
 
 [Icons]
 Name: "{autoprograms}\Meeting Notes"; Filename: "{app}\MeetingNotes.exe"
@@ -96,7 +98,9 @@ begin
   begin
     Data := ExpandConstant('{localappdata}\MeetingNotes');
     if DirExists(Data) and not UninstallSilent() then
-      if MsgBox('Also delete the downloaded speech model (about 1.6 GB) and the settings?' #13#10 #13#10 +
+      // The installed speech model is removed with the app; this folder has the settings, the log and any model
+      // that was downloaded separately because the installed one was missing.
+      if MsgBox('Also delete your Meeting Notes settings (and any speech model downloaded separately)?' #13#10 #13#10 +
                 'Your meetings (notes, transcripts, audio) are kept in their folder either way.',
                 mbConfirmation, MB_YESNO) = IDYES then
         DelTree(Data, True, True, True);

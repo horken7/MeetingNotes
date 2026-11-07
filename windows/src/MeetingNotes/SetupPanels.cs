@@ -75,12 +75,12 @@ sealed class ModelPanel : StackPanel
         Children.Clear();
         if (Installed && !Downloading)
         {
-            Children.Add(UI.Check("Speech model downloaded", true));
+            Children.Add(UI.Check(AppPaths.ModelBundled ? "Speech model installed" : "Speech model downloaded", true));
             Children.Add(UI.Hint("Whisper large-v3-turbo. Transcription runs on this PC; the audio never leaves it."));
             return;
         }
         Children.Add(UI.Check("Speech model", Downloading ? null : false));
-        Children.Add(UI.Hint("Meeting Notes transcribes on this PC with the Whisper large-v3-turbo model. It's a one-time download of about 1.6 GB; it continues where it stopped if interrupted."));
+        Children.Add(UI.Hint("Meeting Notes transcribes on this PC with the Whisper large-v3-turbo model. It normally comes with the installer, but isn't in the install folder, so download it once (about 1.6 GB; it continues where it stopped if interrupted), or reinstall Meeting Notes."));
         Children.Add(bar);
         Children.Add(status);
         download.Content = Downloading ? "Cancel" : "Download the speech model (1.6 GB)";
@@ -103,7 +103,7 @@ sealed class ModelPanel : StackPanel
             if (!File.Exists(AppPaths.VadModel))
             {
                 status.Text = "Downloading the voice activity model…";
-                await Downloads.DownloadAsync(AppPaths.VadModelUrl, AppPaths.VadModel, null, cancel.Token);
+                await Downloads.DownloadAsync(AppPaths.VadModelUrl, AppPaths.DownloadedVadModel, null, cancel.Token);
             }
             var progress = new Progress<(long Done, long? Total)>(p =>
             {
@@ -115,7 +115,7 @@ sealed class ModelPanel : StackPanel
                 }
                 else status.Text = $"Downloading… {Downloads.Size(p.Done)}";
             });
-            await Downloads.DownloadAsync(AppPaths.ModelUrl, AppPaths.Model, progress, cancel.Token);
+            if (!AppPaths.ModelInstalled) await Downloads.DownloadAsync(AppPaths.ModelUrl, AppPaths.DownloadedModel, progress, cancel.Token);
             status.Text = "";
             cancel = null;
             Refresh();

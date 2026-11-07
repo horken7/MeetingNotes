@@ -1,7 +1,8 @@
 namespace MeetingNotes.Core;
 
-/// Where the app keeps its files. Models and settings live in %LOCALAPPDATA%\MeetingNotes; the meetings
-/// themselves go in Documents\Meetings unless changed in Settings.
+/// Where the app keeps its files. The speech models come with the installer (in the install folder's `models`);
+/// settings, and models downloaded as a fallback, live in %LOCALAPPDATA%\MeetingNotes. The meetings themselves go
+/// in Documents\Meetings unless changed in Settings.
 public static class AppPaths
 {
     public const string ModelUrl = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo.bin";
@@ -19,9 +20,30 @@ public static class AppPaths
     }
 
     public static string SettingsFile => Path.Combine(DataDir, "settings.json");
-    public static string Model => Path.Combine(DataDir, "ggml-large-v3-turbo.bin");
-    public static string VadModel => Path.Combine(DataDir, "ggml-silero-v5.1.2.bin");
+    public const string ModelFile = "ggml-large-v3-turbo.bin";
+    public const string VadModelFile = "ggml-silero-v5.1.2.bin";
+
+    /// The models the installer puts next to the app.
+    public static string BundledModelDir => Path.Combine(AppDir, "models");
+
+    /// Where a downloaded model goes (only when the installed one is missing).
+    public static string DownloadedModel => Path.Combine(DataDir, ModelFile);
+    public static string DownloadedVadModel => Path.Combine(DataDir, VadModelFile);
+
+    /// The model to use: the installed one, else one downloaded to the data folder. When neither exists, the
+    /// download location (so a download goes there).
+    public static string ResolveModel(string file, string bundledDir, string dataDir)
+    {
+        var bundled = Path.Combine(bundledDir, file);
+        if (File.Exists(bundled)) return bundled;
+        return Path.Combine(dataDir, file);
+    }
+
+    public static string Model => ResolveModel(ModelFile, BundledModelDir, DataDir);
+    public static string VadModel => ResolveModel(VadModelFile, BundledModelDir, DataDir);
     public static bool ModelInstalled => File.Exists(Model);
+    /// The model came with the installer, so there's nothing to download.
+    public static bool ModelBundled => File.Exists(Path.Combine(BundledModelDir, ModelFile));
     public static string McpExtension => Path.Combine(DataDir, "MeetingNotes.mcpb");
     public static string LogFile => Path.Combine(DataDir, "log.txt");
 

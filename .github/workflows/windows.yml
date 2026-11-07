@@ -28,6 +28,12 @@ jobs:
           $v = "1.0.0"
           if ($env:GITHUB_REF -like "refs/tags/v*") { $v = $env:GITHUB_REF_NAME.Substring(1) }
           "VERSION=$v" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+      - name: Speech models cache
+        uses: actions/cache@v4
+        with:
+          path: windows/.models
+          # Bump when the pinned models in windows/build.ps1 change.
+          key: whisper-models-large-v3-turbo-5359861-silero-v5.1.2
       - name: Build, test and make the installer
         shell: pwsh
         run: ./windows/build.ps1 -Version $env:VERSION
