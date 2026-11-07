@@ -102,6 +102,7 @@ sealed class SettingsWindow : Window
         });
         body.Children.Add(Labeled("Folder", UI.Row(folder, choose)));
         body.Children.Add(Toggle("Keep audio recordings", s.KeepAudio, v => s.KeepAudio = v));
+        body.Children.Add(UI.Text("When off, the audio is deleted as soon as the transcript is ready.", 12, color: (Brush)FindResource("Muted")));
 
         // Setup
         body.Children.Add(Section("Setup"));

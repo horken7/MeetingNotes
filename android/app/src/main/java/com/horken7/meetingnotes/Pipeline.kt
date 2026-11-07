@@ -39,8 +39,9 @@ class Pipeline(
         try {
             val transcriptFile = File(folder, "transcript.md")
             if (!notesOnly || !transcriptFile.exists()) transcribe(folder)
-            writeNotes(folder)
+            // The transcript is saved, so the audio is no longer needed unless the user keeps it.
             if (!settings.keepAudio) Store.audioFiles(folder).forEach { it.delete() }
+            writeNotes(folder)
             Store.update(folder) { it.copy(status = Meta.DONE, error = null) }
         } catch (e: CancelledException) {
             Store.update(folder) { it.copy(status = Meta.FAILED, error = "Stopped. Press Retry to continue.") }

@@ -211,15 +211,17 @@ enum Pipeline {
                 try "# \(meta.title): transcript\n\n\(transcript)\n".write(to: transcriptURL, atomically: true, encoding: .utf8)
             }
 
+            // The transcript is saved, so the audio is no longer needed unless the user keeps it.
+            if !settings.keepAudio {
+                for f in Store.audioFiles(folder) { try? FileManager.default.removeItem(at: f) }
+            }
+
             Store.update(folder) { $0.status = "summarizing" }
             await onChange()
             let current = Store.readMeta(folder) ?? meta
             let notes = try await summarize(transcript: transcript, meta: current, myName: settings.myName, folder: folder, provider: settings.notesProvider)
             try "# \(current.title)\n\n\(notes)\n".write(to: folder.appendingPathComponent("notes.md"), atomically: true, encoding: .utf8)
 
-            if !settings.keepAudio {
-                for f in Store.audioFiles(folder) { try? FileManager.default.removeItem(at: f) }
-            }
             Store.update(folder) { $0.status = "done"; $0.error = nil }
         } catch {
             Store.update(folder) { $0.status = "failed"; $0.error = error.localizedDescription }

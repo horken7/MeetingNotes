@@ -14,7 +14,7 @@ public sealed class AppSettings
     public bool AutoDetect { get; set; } = true;
     public bool AutoStart { get; set; }
     public bool AutoStop { get; set; } = true;
-    public bool KeepAudio { get; set; } = true;
+    public bool KeepAudio { get; set; } = false;
     public string OutputDir { get; set; } = AppPaths.DefaultMeetingsDir;
     public List<string> IgnoredApps { get; set; } = new();
     public string ClaudePath { get; set; } = "";

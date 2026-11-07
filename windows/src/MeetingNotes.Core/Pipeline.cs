@@ -50,14 +50,16 @@ public sealed class Pipeline
                 await File.WriteAllTextAsync(transcriptPath, $"# {meta.Title}: transcript\n\n{transcript}\n");
             }
 
+            // The transcript is saved, so the audio is no longer needed unless the user keeps it.
+            if (!settings.KeepAudio)
+                foreach (var f in Store.AudioFiles(folder)) { try { File.Delete(f); } catch { } }
+
             Store.Update(folder, m => m.Status = "summarizing");
             onChange?.Invoke();
             var current = Store.ReadMeta(folder) ?? meta;
             var notes = await SummarizeAsync(transcript, current, settings, folder);
             await File.WriteAllTextAsync(Path.Combine(folder, "notes.md"), $"# {current.Title}\n\n{notes}\n");
 
-            if (!settings.KeepAudio)
-                foreach (var f in Store.AudioFiles(folder)) { try { File.Delete(f); } catch { } }
             Store.Update(folder, m => { m.Status = "done"; m.Error = null; });
         }
         catch (Exception e)
