@@ -62,11 +62,17 @@ final class SetupModel: ObservableObject {
     private var checkTask: Task<Void, Never>?
 
     private init() {
-        step = Step(rawValue: UserDefaults.standard.integer(forKey: Self.stepKey)) ?? .welcome
+        let saved = Step(rawValue: UserDefaults.standard.integer(forKey: Self.stepKey)) ?? .welcome
+        step = saved == .speech && Tools.modelBundled ? .notes : saved
         provider = NotesProvider(rawValue: UserDefaults.standard.string(forKey: Keys.notesProvider) ?? "") ?? .claude
     }
 
     var appPath: String { Bundle.main.bundlePath }
+
+    /// The steps to show: no download step when the app carries the speech model.
+    var steps: [Step] { Step.allCases.filter { $0 != .speech || !Tools.modelBundled } }
+    func next() { step = steps.first { $0.rawValue > step.rawValue } ?? .done }
+    func back() { step = steps.last { $0.rawValue < step.rawValue } ?? .welcome }
     var needsMove: Bool { AppLocation.needsMove(appPath) }
 
     func isDone(_ s: Step) -> Bool {
@@ -91,7 +97,7 @@ final class SetupModel: ObservableObject {
             speech = .done
             return
         }
-        let part = DownloadLogic.partURL(Tools.model)
+        let part = DownloadLogic.partURL(Tools.downloadedModel)
         let have = (try? FileManager.default.attributesOfItem(atPath: part.path)[.size] as? Int64) ?? 0
         if !Tools.modelInstalled, let free = Self.freeSpace(), free < Self.modelBytes - have + 200_000_000 {
             speech = .failed("Your Mac needs about \(Self.bytes(Self.modelBytes - have + 200_000_000)) of free space for the speech model, and has \(Self.bytes(free)). Free up some space, then press Try again.")
@@ -114,14 +120,14 @@ final class SetupModel: ObservableObject {
             do {
                 if !Tools.modelInstalled {
                     rateSamples = []
-                    try await FileDownloader().download(Self.whisperURL, to: Tools.model, minimumSize: 100_000_000) { received, total in
+                    try await FileDownloader().download(Self.whisperURL, to: Tools.downloadedModel, minimumSize: 100_000_000) { received, total in
                         Task { @MainActor [weak self] in self?.speechProgress(received, total) }
                     }
                 }
                 // Voice activity detection (under 1 MB): skips silence so whisper doesn't invent phrases.
                 // Optional, so a failure here doesn't block setup.
                 if !FileManager.default.fileExists(atPath: Tools.vadModel.path) {
-                    try? await FileDownloader().download(Self.vadURL, to: Tools.vadModel, minimumSize: 100_000) { _, _ in }
+                    try? await FileDownloader().download(Self.vadURL, to: Tools.downloadedVADModel, minimumSize: 100_000) { _, _ in }
                 }
                 speech = .done
                 AppModel.shared.objectWillChange.send()   // the "speech model missing" banner
@@ -421,7 +427,7 @@ struct SetupView: View {
     private var sidebar: some View {
         VStack(alignment: .leading, spacing: 4) {
             Text("Set up Meeting Notes").font(.headline).padding(.bottom, 10)
-            ForEach(SetupModel.Step.allCases) { s in
+            ForEach(setup.steps) { s in
                 Button { setup.step = s } label: {
                     HStack(spacing: 8) {
                         Image(systemName: setup.isDone(s) ? "checkmark.circle.fill" : (s == setup.step ? "circle.inset.filled" : "circle"))
@@ -462,7 +468,7 @@ struct SetupView: View {
     private var footer: some View {
         HStack {
             if setup.step != .welcome {
-                Button("Back") { setup.step = SetupModel.Step(rawValue: setup.step.rawValue - 1) ?? .welcome }
+                Button("Back") { setup.back() }
             }
             Spacer()
             if setup.step == .done {
@@ -478,7 +484,7 @@ struct SetupView: View {
                     Text("You can do this later from Settings.").font(.caption).foregroundStyle(.secondary)
                 }
                 Button(setup.isDone(setup.step) || setup.step == .welcome ? "Continue" : "Skip for now") {
-                    setup.step = SetupModel.Step(rawValue: setup.step.rawValue + 1) ?? .done
+                    setup.next()
                 }
                 .keyboardShortcut(.defaultAction)
             }
@@ -765,7 +771,7 @@ private struct DonePage: View {
     @ObservedObject var setup: SetupModel
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            let pending = SetupModel.Step.allCases.filter { [.welcome, .speech, .notes, .permissions].contains($0) && !setup.isDone($0) }
+            let pending = setup.steps.filter { [.welcome, .speech, .notes, .permissions].contains($0) && !setup.isDone($0) }
             PageHeader(title: pending.isEmpty ? "You're all set" : "Almost there",
                        text: "Join a video call (Zoom, Teams, Meet, Slack…) and Meeting Notes offers to take notes. Or click the waveform icon in the menu bar and choose Start meeting notes. When the call ends, the notes appear in the Meeting Notes window.")
             ForEach(pending) { s in

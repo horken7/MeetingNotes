@@ -1,7 +1,10 @@
 #!/bin/bash
 # Builds the self-contained "Meeting Notes.app" for the disk image: universal app, the MCP server,
 # a bundled whisper-cli and the Claude Desktop extension, ad hoc signed.
-#   WHISPER_CLI=<whisper-cli from build-whisper.sh> bash packaging/build-app.sh <output folder> [version]
+#   WHISPER_CLI=<whisper-cli from build-whisper.sh> MODELS_DIR=<folder from fetch-models.sh> \
+#     bash packaging/build-app.sh <output folder> [version]
+# MODELS_DIR is required, so a release never ships without the speech models; MODELS_DIR=none builds
+# without them (the app then downloads them on first run).
 # ARCHS="arm64" builds one architecture only (quicker, for local testing).
 set -euo pipefail
 OUT="$1"
@@ -9,6 +12,7 @@ VERSION="${2:-0.0.0}"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ARCHS=(${ARCHS:-arm64 x86_64})
 : "${WHISPER_CLI:?Set WHISPER_CLI to the whisper-cli built by packaging/build-whisper.sh}"
+: "${MODELS_DIR:?Set MODELS_DIR to the folder filled by packaging/fetch-models.sh (or none)}"
 APP="$OUT/Meeting Notes.app"
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
@@ -33,6 +37,17 @@ build "$APP/Contents/MacOS/meetingnotes-mcp" "$ROOT/mcp/main.swift"
 echo "==> Adding whisper-cli"
 cp "$WHISPER_CLI" "$APP/Contents/MacOS/whisper-cli"
 chmod 755 "$APP/Contents/MacOS/whisper-cli"
+
+if [[ "$MODELS_DIR" != none ]]; then
+  echo "==> Adding the speech models"
+  mkdir -p "$APP/Contents/Resources/models"
+  for m in ggml-large-v3-turbo.bin ggml-silero-v5.1.2.bin; do
+    [[ -s "$MODELS_DIR/$m" ]] || { echo "Missing $MODELS_DIR/$m (run packaging/fetch-models.sh)" >&2; exit 1; }
+    # A clone shares the disk blocks with the source on APFS, so this doesn't take another 1.6 GB.
+    cp -c "$MODELS_DIR/$m" "$APP/Contents/Resources/models/$m" 2>/dev/null || cp "$MODELS_DIR/$m" "$APP/Contents/Resources/models/$m"
+    chmod 644 "$APP/Contents/Resources/models/$m"
+  done
+fi
 
 # The build number only has to increase between releases: the commit count does.
 BUILD_NUMBER="$(git -C "$ROOT" rev-list --count HEAD 2>/dev/null || echo 1)"

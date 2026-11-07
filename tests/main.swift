@@ -760,6 +760,21 @@ func testAppLocation() throws {
     expect(getxattr(f.path, "com.apple.quarantine", nil, 0, 0, 0) < 0, "quarantine flag removed")
 }
 
+
+func testModelLookup() {
+    let bundle = URL(fileURLWithPath: "/App.app/Contents/Resources/models")
+    let data = URL(fileURLWithPath: "/Users/a/.meetnotes")
+    // The bundled model wins when it's there.
+    expectEqual(Tools.modelPath("m.bin", bundleDir: bundle, dataDir: data) { _ in true }.path, "/App.app/Contents/Resources/models/m.bin")
+    // Not bundled (install.sh build, or a download): ~/.meetnotes.
+    expectEqual(Tools.modelPath("m.bin", bundleDir: bundle, dataDir: data) { $0.hasPrefix("/Users") }.path, "/Users/a/.meetnotes/m.bin")
+    expectEqual(Tools.modelPath("m.bin", bundleDir: nil, dataDir: data) { _ in true }.path, "/Users/a/.meetnotes/m.bin")
+    // Nothing anywhere: ~/.meetnotes, where setup downloads it.
+    expectEqual(Tools.modelPath("m.bin", bundleDir: bundle, dataDir: data) { _ in false }.path, "/Users/a/.meetnotes/m.bin")
+    expectEqual(Tools.downloadedModel.lastPathComponent, Tools.modelName)
+    expect(!Tools.modelBundled, "the test binary carries no models")
+}
+
 @main
 struct TestMain {
     static func main() async {
@@ -783,6 +798,7 @@ struct TestMain {
         testOllamaRequest()
         do { try await testOllamaProvider() } catch { expect(false, "ollama threw: \(error)") }
         testToolLookupOrder()
+        testModelLookup()
         testDownloadLogic()
         do { try await testFileDownloader() } catch { expect(false, "downloader threw: \(error)") }
         testProviderSetup()

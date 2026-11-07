@@ -1,7 +1,7 @@
 name: Mac app (DMG)
 
-# Builds MeetingNotes.dmg: the app with whisper-cli, the MCP server and the Claude Desktop extension
-# inside, ad hoc signed (not notarized). On a v* tag it is uploaded to that GitHub Release, next to
+# Builds MeetingNotes.dmg: the app with whisper-cli, the speech models, the MCP server and the Claude
+# Desktop extension inside, ad hoc signed (not notarized). On a v* tag it is uploaded to that GitHub Release, next to
 # the Windows installer from the Windows job. On pull requests that touch the app or the packaging
 # it is built and kept as a workflow artifact for testing.
 
@@ -62,8 +62,19 @@ jobs:
           build/whisper-cli --help 2>&1 | grep -- "--vad" >/dev/null
           otool -L build/whisper-cli
 
+      - name: Cache the speech models
+        uses: actions/cache@v4
+        with:
+          path: build/models
+          key: speech-models-${{ hashFiles('packaging/fetch-models.sh') }}
+
+      - name: Speech models (checksums verified)
+        run: bash packaging/fetch-models.sh build/models
+
       - name: Build the app
-        run: WHISPER_CLI=build/whisper-cli bash packaging/build-app.sh build "${{ steps.version.outputs.version }}"
+        run: |
+          WHISPER_CLI=build/whisper-cli MODELS_DIR=build/models \
+            bash packaging/build-app.sh build "${{ steps.version.outputs.version }}"
 
       - name: Build the disk image
         run: bash packaging/make-dmg.sh "build/Meeting Notes.app" build/MeetingNotes.dmg
@@ -85,8 +96,14 @@ jobs:
             | "$APP/Contents/MacOS/meetingnotes-mcp" | grep '"serverInfo"' >/dev/null
           unzip -p "$APP/Contents/Resources/MeetingNotes.mcpb" manifest.json | python3 -c 'import json,sys; m=json.load(sys.stdin); assert m["server"]["entry_point"]=="server/launch.sh"; print(m["version"])'
           [[ "$(plutil -extract CFBundleShortVersionString raw "$APP/Contents/Info.plist")" == "${{ steps.version.outputs.version }}" ]]
+          for m in ggml-large-v3-turbo.bin ggml-silero-v5.1.2.bin; do
+            cmp "$APP/Contents/Resources/models/$m" "build/models/$m"
+          done
           hdiutil detach "$MOUNT"
-          ls -lh build/MeetingNotes.dmg
+          # GitHub release assets must be under 2 GiB.
+          SIZE=$(stat -f %z build/MeetingNotes.dmg)
+          echo "MeetingNotes.dmg: $SIZE bytes"
+          (( SIZE < 2000000000 ))
 
       - uses: actions/upload-artifact@v4
         with:
