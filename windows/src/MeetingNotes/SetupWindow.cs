@@ -15,7 +15,11 @@ sealed class SetupWindow : Window
     readonly Button next = new() { Content = "Next" };
     readonly TextBlock stepLabel = new() { Foreground = Brushes.Gray, VerticalAlignment = VerticalAlignment.Center };
     int step;
-    const int Steps = 5;
+    /// The pages shown: the speech model page only when the installed model is missing.
+    readonly string[] pages = AppPaths.ModelInstalled
+        ? new[] { "welcome", "provider", "setup", "finish" }
+        : new[] { "welcome", "model", "provider", "setup", "finish" };
+    int Steps => pages.Length;
     ModelPanel? modelPanel;
     ProviderPanel? providerPanel;
     bool loginOn = true;
@@ -63,12 +67,12 @@ sealed class SetupWindow : Window
         back.Visibility = step == 0 ? Visibility.Hidden : Visibility.Visible;
         next.Content = step == Steps - 1 ? "Finish" : "Next";
         stepLabel.Text = $"Step {step + 1} of {Steps}";
-        page.Content = step switch
+        page.Content = pages[step] switch
         {
-            0 => Welcome(),
-            1 => Model(),
-            2 => Provider(),
-            3 => ProviderSetup(),
+            "welcome" => Welcome(),
+            "model" => Model(),
+            "provider" => Provider(),
+            "setup" => ProviderSetup(),
             _ => Finishing(),
         };
     }
@@ -99,7 +103,7 @@ sealed class SetupWindow : Window
     {
         var p = new StackPanel();
         p.Children.Add(Heading("Download the speech model"));
-        p.Children.Add(UI.Text("The transcript is made on this PC, so your audio never leaves it. That needs a speech recognition model, downloaded once.", 14));
+        p.Children.Add(UI.Text("The transcript is made on this PC, so your audio never leaves it. That needs a speech recognition model. It normally comes with the installer; here it's missing, so it's downloaded once.", 14));
         modelPanel ??= new ModelPanel();
         if (modelPanel.Parent is Panel old) old.Children.Remove(modelPanel);
         p.Children.Add(modelPanel);

@@ -7,8 +7,8 @@ MCP server work the same way.
 Install it with `MeetingNotes-Setup.exe` from the [GitHub Releases](https://github.com/horken7/MeetingNotes/releases)
 page: a per-user install (no administrator rights) to `%LOCALAPPDATA%\Programs\MeetingNotes`. The installer isn't
 signed yet, so Windows SmartScreen says "Windows protected your PC" the first time: click **More info**, then
-**Run anyway**. On first launch a setup assistant downloads the speech model and helps install and sign in to the
-notes provider, without the command line.
+**Run anyway**. The speech models come with the installer, so it's about 1.7 GB and nothing is downloaded at first run. On first
+launch a setup assistant helps install and sign in to the notes provider, without the command line.
 
 Requirements: Windows 10 (1809) or 11, x64 (Windows on Arm runs it emulated), about 2 GB of disk for the speech model.
 
@@ -21,7 +21,7 @@ Requirements: Windows 10 (1809) or 11, x64 (Windows on Arm runs it emulated), ab
 | `src/MeetingNotes.Mcp` | `meetingnotes-mcp.exe`, the read-only MCP server (stdio) for Claude Desktop and other AI apps |
 | `tests/MeetingNotes.Tests` | xUnit tests for the Core parts, including JSON-RPC round trips through the built MCP server |
 | `installer/MeetingNotes.iss` | Inno Setup script for `MeetingNotes-Setup.exe` |
-| `build.ps1` | Tests, publishes (self-contained), bundles whisper.cpp, smoke-tests both executables, builds the installer |
+| `build.ps1` | Tests, publishes (self-contained), bundles whisper.cpp and the speech models (downloaded once into `windows\.models`, pinned by SHA-256, never committed), smoke-tests whisper with them and the MCP server, builds the installer and checks it's under GitHub's 2 GiB asset limit |
 
 ## How it maps to the Mac app
 
@@ -32,7 +32,7 @@ Requirements: Windows 10 (1809) or 11, x64 (Windows on Arm runs it emulated), ab
 | If call audio fails | records the mic alone | the same; a device change (headset plugged in) starts a new segment (`me-1`, `others-1`…) like the Mac |
 | Call detection | Core Audio process objects | the registry Windows keeps for the microphone privacy indicator (`HKCU\…\CapabilityAccessManager\ConsentStore\microphone`, `LastUsedTimeStop = 0` while in use), polled every 2 s; auto-stop 5 s after the app releases the mic (up to 60 s while it still plays sound, from its audio session) |
 | Meeting name | AppleScript reads the browser's tabs | the call app's window titles (the active tab's title is in the browser window title), e.g. "Meet – Weekly sync - Google Chrome" becomes "Weekly sync" |
-| Transcription | Homebrew `whisper-cli` | the official whisper.cpp Windows build (`b5454` = v1.9.5, CPU), bundled; models in `%LOCALAPPDATA%\MeetingNotes` |
+| Transcription | Homebrew `whisper-cli` | the official whisper.cpp Windows build (`b5454` = v1.9.5, CPU), bundled, with `ggml-large-v3-turbo.bin` and the Silero VAD model in the install folder's `models\` (only if those are missing, the app offers to download them to `%LOCALAPPDATA%\MeetingNotes`) |
 | Notes | `claude -p`, `codex exec`, Ollama `/api/chat` | the same commands, flags, prompt and request (`ANTHROPIC_API_KEY` removed) |
 | Settings | UserDefaults | `%LOCALAPPDATA%\MeetingNotes\settings.json`, same key names |
 | Notifications | UNUserNotificationCenter | Windows toast notifications (buttons: Start notes, Not now, Never for this app) |

@@ -675,3 +675,21 @@ public class PipelineTests
         Assert.Contains("<transcript>\n# X: transcript", runner.Calls.Single().Input);
     }
 }
+
+public class ModelLocationTests
+{
+    [Fact]
+    public void PrefersTheInstalledModelThenTheDownloadedOne()
+    {
+        using var dir = new TempDir();
+        var bundled = dir.Sub("app-models");
+        var data = dir.Sub("data");
+        var file = AppPaths.ModelFile;
+        // Neither: the download location.
+        Assert.Equal(Path.Combine(data, file), AppPaths.ResolveModel(file, bundled, data));
+        File.WriteAllText(Path.Combine(data, file), "downloaded");
+        Assert.Equal(Path.Combine(data, file), AppPaths.ResolveModel(file, bundled, data));
+        File.WriteAllText(Path.Combine(bundled, file), "installed");
+        Assert.Equal(Path.Combine(bundled, file), AppPaths.ResolveModel(file, bundled, data));
+    }
+}
