@@ -30,6 +30,13 @@ class WhisperModel private constructor(private var handle: Long) : AutoCloseable
         return WhisperLib.nativeTranscribe(handle, samples, language, threads, vadModelPath, prompt, progress)?.toList()
     }
 
+    /** The most likely language of up to 30 s of [samples] and its probability, e.g. ("sv", 0.93). */
+    fun detectLanguage(samples: FloatArray, threads: Int): Pair<String, Float>? {
+        check(handle != 0L) { "model is closed" }
+        val s = WhisperLib.nativeDetectLanguage(handle, samples, threads) ?: return null
+        return s.substringBefore(':') to (s.substringAfter(':').toFloatOrNull() ?: 0f)
+    }
+
     /** The language of the last transcription, e.g. "sv". */
     val language: String? get() = if (handle == 0L) null else WhisperLib.nativeLanguage(handle)
 
@@ -44,10 +51,13 @@ class WhisperModel private constructor(private var handle: Long) : AutoCloseable
     }
 
     companion object {
-        /** Loads a ggml whisper model, or returns null if the file isn't a valid model. */
-        fun load(path: String): WhisperModel? {
+        /**
+         * Loads a ggml whisper model from bytes [offset] to [offset] + [length] of the file at [path] (a model stored
+         * uncompressed inside the APK, or a whole downloaded file), or returns null if it isn't a valid model.
+         */
+        fun load(path: String, offset: Long = 0, length: Long = java.io.File(path).length()): WhisperModel? {
             WhisperLib.ensureLoaded()
-            val h = WhisperLib.nativeInit(path)
+            val h = WhisperLib.nativeInit(path, offset, length)
             return if (h == 0L) null else WhisperModel(h)
         }
     }
@@ -64,7 +74,8 @@ internal object WhisperLib {
 
     fun systemInfo(): String { ensureLoaded(); return nativeSystemInfo() }
 
-    external fun nativeInit(path: String): Long
+    external fun nativeInit(path: String, offset: Long, length: Long): Long
+    external fun nativeDetectLanguage(handle: Long, samples: FloatArray, threads: Int): String?
     external fun nativeFree(handle: Long)
     external fun nativeCancel(handle: Long)
     external fun nativeTranscribe(

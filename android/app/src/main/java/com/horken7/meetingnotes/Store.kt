@@ -101,11 +101,7 @@ class Settings(context: Context) {
         get() = prefs.getString("language", "auto") ?: "auto"
         set(v) = prefs.edit().putString("language", v).apply()
 
-    var whisperChoice: String
-        get() = prefs.getString("whisperModel", Catalog.whisperSmall.id) ?: Catalog.whisperSmall.id
-        set(v) = prefs.edit().putString("whisperModel", v).apply()
-
-    /** "auto" picks by the phone's memory. */
+    /** "auto" (the built-in Gemma 3 1B) or "gemma3-4b". */
     var notesChoice: String
         get() = prefs.getString("notesModel", "auto") ?: "auto"
         set(v) = prefs.edit().putString("notesModel", v).apply()
@@ -115,12 +111,21 @@ class Settings(context: Context) {
         get() = prefs.getString("notesInstructions", "") ?: ""
         set(v) = prefs.edit().putString("notesInstructions", if (v.trim() == Prompts.defaultInstructions) "" else v).apply()
 
+    /** Set once the first-launch language question was answered. */
+    var languageAsked: Boolean
+        get() = prefs.getBoolean("languageAsked", false)
+        set(v) = prefs.edit().putBoolean("languageAsked", v).apply()
+
+    /** Whisper small instead of large-v3-turbo for languages other than Swedish, once downloaded. */
+    var fastSpeech: Boolean
+        get() = prefs.getBoolean("fastSpeech", false)
+        set(v) = prefs.edit().putBoolean("fastSpeech", v).apply()
+
     var keepAudio: Boolean
         get() = prefs.getBoolean("keepAudio", false)
         set(v) = prefs.edit().putBoolean("keepAudio", v).apply()
 
     val totalRamBytes: Long get() = totalRam
 
-    val whisperModel: ModelFile get() = Catalog.whisperModel(whisperChoice)
     val notesModel: ModelFile? get() = Catalog.notesModel(notesChoice, totalRam)
 }

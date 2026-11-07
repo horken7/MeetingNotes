@@ -23,6 +23,13 @@ import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
+import com.horken7.meetingnotes.core.Prompts
+import kotlinx.coroutines.launch
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.material3.rememberSwipeToDismissBoxState
+import androidx.compose.material3.SwipeToDismissBox
+import androidx.compose.material3.RadioButton
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -78,7 +85,9 @@ fun ListScreen(settings: Settings, onOpen: (String) -> Unit, onSettings: () -> U
     val processing by Work.processing.collectAsState()
     val recording by Work.recording.collectAsState()
     val message by Work.message.collectAsState()
+    val queued by Work.queued.collectAsState()
     var query by rememberSaveable { mutableStateOf("") }
+    var deleting by remember { mutableStateOf<Meeting?>(null) }
     val meetings = remember(version) { Store.loadAll() }
     val searchText = remember(version) { HashMap<String, String>() }
     val shown = if (query.isBlank()) meetings else meetings.filter { m ->
@@ -120,7 +129,10 @@ fun ListScreen(settings: Settings, onOpen: (String) -> Unit, onSettings: () -> U
             } else {
                 LazyColumn(Modifier.fillMaxSize()) {
                     items(shown, key = { it.id }) { m ->
-                        MeetingRow(m, processing?.takeIf { it.meetingId == m.id }?.fraction, recording?.meetingId == m.id) { onOpen(m.id) }
+                        val busy = m.isBusy || recording?.meetingId == m.id || m.id in queued
+                        SwipeToDelete(enabled = !busy, onSwiped = { deleting = m }) {
+                            MeetingRow(m, processing?.takeIf { it.meetingId == m.id }?.fraction, recording?.meetingId == m.id) { onOpen(m.id) }
+                        }
                         HorizontalDivider()
                     }
                     if (shown.isEmpty()) item {
@@ -129,6 +141,30 @@ fun ListScreen(settings: Settings, onOpen: (String) -> Unit, onSettings: () -> U
                 }
             }
         }
+    }
+
+    deleting?.let { m -> ConfirmDelete(m.title, onConfirm = { Store.delete(m.folder); deleting = null }, onDismiss = { deleting = null }) }
+    if (!settings.languageAsked) LanguageWelcome(settings)
+}
+
+@Composable
+private fun SwipeToDelete(enabled: Boolean, onSwiped: () -> Unit, content: @Composable () -> Unit) {
+    val state = rememberSwipeToDismissBoxState()
+    val scope = rememberCoroutineScope()
+    SwipeToDismissBox(
+        state = state,
+        enableDismissFromStartToEnd = false,
+        gesturesEnabled = enabled,
+        backgroundContent = {
+            Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.errorContainer).padding(horizontal = 24.dp),
+                contentAlignment = Alignment.CenterEnd) {
+                Text("Delete", color = MaterialTheme.colorScheme.onErrorContainer)
+            }
+        },
+        // The row springs back; the meeting is only deleted once the user confirms.
+        onDismiss = { onSwiped(); scope.launch { state.reset() } },
+    ) {
+        Surface { content() }
     }
 }
 
@@ -146,6 +182,72 @@ private fun MeetingRow(m: Meeting, fraction: Float?, isRecording: Boolean, onCli
             Spacer(Modifier.weight(1f))
             StatusLabel(if (isRecording) Meta.RECORDING else m.status, fraction)
         }
+    }
+}
+
+/** Asks before a meeting is deleted, from a swipe or the meeting's menu. */
+@Composable
+fun ConfirmDelete(title: String, onConfirm: () -> Unit, onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Delete \"$title\"?") },
+        text = { Text("The audio, transcript and notes are removed from the phone. This can't be undone.") },
+        confirmButton = { TextButton(onClick = onConfirm) { Text("Delete", color = MaterialTheme.colorScheme.error) } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
+/**
+ * First launch: which language are the meetings usually in? When there's a better optional model for it, explain it
+ * and offer the download, with the built-in model as the default.
+ */
+@Composable
+private fun LanguageWelcome(settings: Settings) {
+    val context = LocalContext.current
+    var language by remember { mutableStateOf("auto") }
+    var offer by remember { mutableStateOf<com.horken7.meetingnotes.core.ModelFile?>(null) }
+    fun finish(download: Boolean) {
+        settings.language = language
+        settings.languageAsked = true
+        offer?.takeIf { download }?.let { MeetingService.download(context, listOf(it.id)) }
+        Store.changed()
+    }
+    val better = offer
+    if (better == null) {
+        AlertDialog(
+            onDismissRequest = {},
+            title = { Text("Which language are your meetings usually in?") },
+            text = {
+                Column {
+                    listOf("sv" to "Swedish", "da" to "Danish", "en" to "English", "auto" to "Automatic (detect it each time)").forEach { (code, name) ->
+                        Row(Modifier.fillMaxWidth().clickable { language = code }, verticalAlignment = Alignment.CenterVertically) {
+                            RadioButton(language == code, { language = code })
+                            Text(name)
+                        }
+                    }
+                    Text("You can change this later in Settings.", style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(top = 8.dp))
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val m = Catalog.betterSpeechModel(language)?.takeIf { !Models.isReady(it) }
+                    if (m != null) offer = m else finish(false)
+                }) { Text("Continue") }
+            },
+        )
+    } else {
+        AlertDialog(
+            onDismissRequest = {},
+            title = { Text("A better model for ${Prompts.languageName(language)}") },
+            text = {
+                Text("The built-in speech model handles ${Prompts.languageName(language)} and works offline right away.\n\n" +
+                    "${better.label} (${Catalog.size(better.bytes)} download). ${better.description}\n\n" +
+                    "You can download it or remove it later in Settings.")
+            },
+            confirmButton = { Button(onClick = { finish(false) }) { Text("Use the built-in model") } },
+            dismissButton = { TextButton(onClick = { finish(true) }) { Text("Download (${Catalog.size(better.bytes)})") } },
+        )
     }
 }
 
@@ -173,21 +275,24 @@ fun Banner(text: String, onDismiss: () -> Unit) {
     }
 }
 
-/** Shown until the speech and notes models are downloaded, so the first meeting doesn't wait for them. */
+/**
+ * Shown while a model the next meeting needs isn't on the phone: the larger notes model the user picked, or every
+ * model in a build made without them built in.
+ */
 @Composable
 private fun SetupCard(settings: Settings, processing: com.horken7.meetingnotes.ProcessingState?, version: Int) {
     val context = LocalContext.current
     val needed = remember(version, processing) {
-        listOfNotNull(settings.whisperModel, Catalog.vad, settings.notesModel).filterNot { Models.isReady(it) }
+        (Catalog.speechModels + listOfNotNull(settings.notesModel)).filterNot { Models.isReady(it) }
     }
     if (needed.isEmpty()) return
     val downloading = processing != null && processing.meetingId == null
     Card(Modifier.fillMaxWidth().padding(16.dp, 8.dp)) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("Before your first meeting", style = MaterialTheme.typography.titleMedium)
             val total = needed.sumOf { it.bytes }
-            Text("Download the speech and notes models once (${Catalog.size(total)}). Wi-Fi is best. " +
-                "After that, everything works offline and nothing leaves the phone.",
+            Text(if (needed.size == 1) needed[0].label else "Speech and notes models", style = MaterialTheme.typography.titleMedium)
+            Text("Download once (${Catalog.size(total)}), Wi-Fi is best. Until then the built-in models are used. " +
+                "Nothing about your meetings leaves the phone.",
                 style = MaterialTheme.typography.bodyMedium)
             if (settings.notesModel == null) {
                 Text("This phone doesn't have enough memory for the notes model, so you'll get transcripts without notes.",

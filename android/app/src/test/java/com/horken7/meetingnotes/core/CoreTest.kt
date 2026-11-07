@@ -304,14 +304,43 @@ class AudioBlocksTest {
 class CatalogTest {
     private val gb = 1_000_000_000L
 
-    @Test fun picksNotesModelByMemory() {
-        assertEquals(Catalog.gemma4b, Catalog.defaultNotesModel(8 * gb))
-        assertEquals(Catalog.gemma1b, Catalog.defaultNotesModel(4 * gb))
-        assertNull(Catalog.defaultNotesModel(2 * gb))
-        assertEquals(Catalog.gemma1b, Catalog.notesModel("gemma3-1b", 12 * gb))
-        assertEquals(Catalog.gemma4b, Catalog.notesModel("auto", 12 * gb))
-        assertEquals(Catalog.whisperSmall, Catalog.whisperModel("unknown"))
-        assertEquals("190 MB", Catalog.size(Catalog.whisperSmall.bytes))
+    @Test fun builtInModelsByDefault() {
+        assertEquals(Catalog.gemma1b, Catalog.notesModel("auto", 12 * gb))
+        assertEquals(Catalog.gemma1b, Catalog.notesModel("auto", 4 * gb))
+        assertEquals(Catalog.gemma4b, Catalog.notesModel("gemma3-4b", 8 * gb))
+        assertNull(Catalog.notesModel("auto", 2 * gb))
+        assertTrue(Catalog.gemma1b.bundled && !Catalog.gemma4b.bundled)
+        assertEquals(Catalog.whisperMultilingual, Catalog.speechModel("sv"))
+        assertEquals(Catalog.whisperSwedish, Catalog.speechModel("sv", swedish = true))
+        assertEquals(Catalog.whisperSwedish, Catalog.betterSpeechModel("sv"))
+        assertNull(Catalog.betterSpeechModel("da"))
+        assertEquals(Catalog.whisperMultilingual, Catalog.speechModel("da"))
+        assertEquals(Catalog.whisperMultilingual, Catalog.speechModel("auto"))
+        assertEquals(Catalog.whisperFast, Catalog.speechModel("en", fast = true))
+        assertEquals(Catalog.whisperSwedish, Catalog.speechModel("sv", swedish = true, fast = true))
+        assertEquals(Catalog.whisperFast, Catalog.speechModel("sv", fast = true))
+        assertFalse(Catalog.whisperSwedish.bundled)
+        assertFalse(Catalog.whisperFast.bundled)
+        assertEquals("175 MB", Catalog.size(Catalog.whisperSwedish.bytes))
         assertEquals("2.5 GB", Catalog.size(Catalog.gemma4b.bytes))
+    }
+
+    @Test fun bundledModelsMatchTheBuildList() {
+        // ../bundled-models.txt is what the build puts in the APK; the app must expect the same files and sizes.
+        val listed = java.io.File("../bundled-models.txt").readLines().map { it.trim() }
+            .filter { it.isNotEmpty() && !it.startsWith("#") }
+            .map { it.split(Regex("\\s+")).let { p -> p[0] to p[1].toLong() } }.toSet()
+        val expected = Catalog.all.filter { it.bundled }.map { it.fileName to it.bytes }.toSet()
+        assertEquals(expected, listed)
+        // Play allows 1.5 GB per asset pack (and GitHub 2 GiB per release file, with room for the app itself).
+        assertTrue(listed.sumOf { it.second } < 1_500_000_000L)
+        // Every language works out of the box: a multilingual speech model, voice detection and a notes model.
+        assertTrue(Catalog.speechModels.all { it.bundled } && Catalog.gemma1b.bundled)
+    }
+
+    @Test fun votesForTheLanguage() {
+        assertEquals("sv", LanguageVote.pick(listOf("no" to 0.5f, "sv" to 0.4f, "sv" to 0.6f)))
+        assertEquals("da", LanguageVote.pick(listOf("da" to 0.9f)))
+        assertNull(LanguageVote.pick(emptyList()))
     }
 }

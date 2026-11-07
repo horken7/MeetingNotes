@@ -179,14 +179,9 @@ fun DetailScreen(id: String, onBack: () -> Unit) {
         )
     }
     if (deleting) {
-        AlertDialog(
-            onDismissRequest = { deleting = false },
-            title = { Text("Delete this meeting?") },
-            text = { Text("The audio, transcript and notes are removed from the phone. This can't be undone.") },
-            confirmButton = { TextButton(onClick = { deleting = false; Store.delete(meeting.folder); onBack() }) { Text("Delete") } },
-            dismissButton = { TextButton(onClick = { deleting = false }) { Text("Cancel") } },
-        )
+        ConfirmDelete(meeting.title, onConfirm = { deleting = false; Store.delete(meeting.folder); onBack() }, onDismiss = { deleting = false })
     }
+
 }
 
 @Composable

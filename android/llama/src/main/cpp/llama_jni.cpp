@@ -15,6 +15,7 @@
 namespace {
 
 struct Handle {
+    FILE *file = nullptr;   // llama.cpp reads the model through it and doesn't close it
     llama_model *model = nullptr;
     llama_context *ctx = nullptr;
     const llama_vocab *vocab = nullptr;
@@ -77,17 +78,34 @@ size_t complete_utf8(const std::string &s) {
 extern "C" {
 
 JNIEXPORT jlong JNICALL
-Java_com_horken7_meetingnotes_llama_LlamaLib_nativeLoad(JNIEnv *env, jobject, jstring jpath, jint nCtx, jint threads) {
+Java_com_horken7_meetingnotes_llama_LlamaLib_nativeLoad(JNIEnv *env, jobject, jstring jpath, jlong offset, jint nCtx, jint threads) {
     static bool inited = false;
     if (!inited) {
         llama_log_set(log_cb, nullptr);
         llama_backend_init();
         inited = true;
     }
+    // The GGUF starts at [offset] of the file: inside the APK (stored uncompressed) or 0 for a downloaded file.
     std::string path = jstr(env, jpath);
     llama_model_params mp = llama_model_default_params();
     mp.n_gpu_layers = 0;
-    llama_model *model = llama_model_load_from_file(path.c_str(), mp);
+    llama_model *model = nullptr;
+    FILE *file = nullptr;
+    for (bool mmap : {true, false}) {
+        // mmap needs the tensor data 32-byte aligned in the file, which an APK entry often isn't; then read it in.
+        FILE *f = fopen(path.c_str(), "rb");
+        if (!f) return 0;
+        if (fseeko(f, (off_t) offset, SEEK_SET) == 0) {
+            mp.load_mode = mmap ? LLAMA_LOAD_MODE_MMAP : LLAMA_LOAD_MODE_NONE;
+            model = llama_model_load_from_file_ptr(f, mp);
+        }
+        if (model) {
+            LOGI("loaded model (mmap: %d)", (int) mmap);
+            file = f;
+            break;
+        }
+        fclose(f);
+    }
     if (!model) return 0;
 
     llama_context_params cp = llama_context_default_params();
@@ -99,9 +117,11 @@ Java_com_horken7_meetingnotes_llama_LlamaLib_nativeLoad(JNIEnv *env, jobject, js
     llama_context *ctx = llama_init_from_model(model, cp);
     if (!ctx) {
         llama_model_free(model);
+        fclose(file);
         return 0;
     }
     auto *h = new Handle();
+    h->file = file;
     h->model = model;
     h->ctx = ctx;
     h->vocab = llama_model_get_vocab(model);
@@ -114,6 +134,7 @@ Java_com_horken7_meetingnotes_llama_LlamaLib_nativeFree(JNIEnv *, jobject, jlong
     if (!h) return;
     llama_free(h->ctx);
     llama_model_free(h->model);
+    if (h->file) fclose(h->file);
     delete h;
 }
 

@@ -13,4 +13,4 @@ dependencyResolutionManagement {
     }
 }
 rootProject.name = "MeetingNotes"
-include(":app", ":whisper", ":llama")
+include(":app", ":whisper", ":llama", ":models")

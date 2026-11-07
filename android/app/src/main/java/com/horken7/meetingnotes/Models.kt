@@ -2,6 +2,7 @@ package com.horken7.meetingnotes
 
 import android.content.Context
 import android.os.Build
+import android.system.Os
 import com.horken7.meetingnotes.core.Catalog
 import com.horken7.meetingnotes.core.ModelFile
 import java.io.File
@@ -13,18 +14,62 @@ import java.net.UnknownHostException
 
 class UserFacingException(message: String) : Exception(message)
 
-/** Downloaded model files, in the app's private storage. */
+/** Where a model's bytes are: [length] bytes from [offset] of [path] (an APK file for built-in models). */
+data class ModelSource(val path: String, val offset: Long, val length: Long)
+
+/**
+ * The models: built in as uncompressed assets (from the install-time asset pack, which Play installs as a split APK,
+ * or inside the universal APK), or downloaded to the app's private storage.
+ */
 object Models {
     lateinit var dir: File
         private set
+    private lateinit var app: Context
+    private val bundled = HashMap<String, ModelSource>()
 
     fun init(context: Context) {
+        app = context.applicationContext
         dir = File(context.filesDir, "models").apply { mkdirs() }
+        // Built-in models are read in place: the APK file that holds the asset (the base or the asset pack's split
+        // APK, found from the open file descriptor) plus the asset's offset in it (it's stored uncompressed).
+        for (m in Catalog.all) {
+            runCatching { context.assets.openFd("models/${m.fileName}") }.getOrNull()?.use { fd ->
+                val apk = runCatching { Os.readlink("/proc/self/fd/${fd.parcelFileDescriptor.fd}") }.getOrNull()
+                if (apk != null && fd.length == m.bytes) bundled[m.id] = ModelSource(apk, fd.startOffset, fd.length)
+            }
+        }
+        cleanUp()
     }
 
-    fun file(m: ModelFile): File = File(dir, m.fileName)
+    /** Deletes downloads the app no longer uses, e.g. models that are now built in. */
+    private fun cleanUp() {
+        val keep = Catalog.all.filter { it.id !in bundled }.map { it.fileName }.toSet() +
+            Catalog.vad.fileName
+        dir.listFiles()?.filter { f -> keep.none { f.name == it || f.name == "$it.part" } }?.forEach { it.delete() }
+    }
 
-    fun isReady(m: ModelFile): Boolean = file(m).let { it.exists() && it.length() == m.bytes }
+    fun isBundled(m: ModelFile): Boolean = m.id in bundled
+
+    private fun file(m: ModelFile): File = File(dir, m.fileName)
+
+    fun isReady(m: ModelFile): Boolean = m.id in bundled || file(m).let { it.exists() && it.length() == m.bytes }
+
+    /** Where to load [m] from, or null if it's neither built in nor downloaded. */
+    fun source(m: ModelFile): ModelSource? =
+        bundled[m.id] ?: file(m).takeIf { it.exists() && it.length() == m.bytes }?.let { ModelSource(it.path, 0, it.length()) }
+
+    /**
+     * A plain file path, for whisper.cpp's voice detection model, which can only be opened by path:
+     * the built-in copy is extracted once (it's under 1 MB).
+     */
+    fun path(m: ModelFile): String? {
+        val f = file(m)
+        if (f.exists() && f.length() == m.bytes) return f.path
+        if (m.id !in bundled) return null
+        val tmp = File(dir, m.fileName + ".part")
+        app.assets.open("models/${m.fileName}").use { input -> FileOutputStream(tmp).use { input.copyTo(it) } }
+        return if (tmp.length() == m.bytes && tmp.renameTo(f)) f.path else null
+    }
 
     fun delete(m: ModelFile) {
         file(m).delete()
@@ -43,8 +88,8 @@ object Models {
         "found in most phones from 2018 on)."
 
     /**
-     * Downloads [m] unless it's already there, resuming a partial download. [progress] gets bytes done and total.
-     * Throws [UserFacingException] with a plain explanation when it fails.
+     * Downloads [m] unless it's built in or already there, resuming a partial download. [progress] gets bytes done and
+     * total. Throws [UserFacingException] with a plain explanation when it fails.
      */
     fun download(m: ModelFile, cancelled: () -> Boolean, progress: (Long, Long) -> Unit) {
         if (isReady(m)) return
@@ -64,7 +109,7 @@ object Models {
                 if (cancelled()) throw e
                 if (++attempt >= 4) {
                     val why = if (e is UnknownHostException) "there's no internet connection" else (e.message ?: "the connection failed")
-                    throw UserFacingException("Couldn't download ${m.label}: $why. It's needed once; after that everything works offline. Try again on Wi-Fi.")
+                    throw UserFacingException("Couldn't download ${m.label}: $why. Try again on Wi-Fi.")
                 }
                 Thread.sleep(2000L * attempt)
             }

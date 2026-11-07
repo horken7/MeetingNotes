@@ -38,10 +38,13 @@ class LlamaModel private constructor(private var handle: Long) : AutoCloseable {
     }
 
     companion object {
-        /** Loads a GGUF model with a context of [contextTokens], or returns null when it can't be loaded. */
-        fun load(path: String, contextTokens: Int, threads: Int): LlamaModel? {
+        /**
+         * Loads a GGUF model that starts at [offset] of the file at [path] (inside the APK, stored uncompressed, or 0
+         * for a downloaded file) with a context of [contextTokens], or returns null when it can't be loaded.
+         */
+        fun load(path: String, offset: Long, contextTokens: Int, threads: Int): LlamaModel? {
             LlamaLib.ensureLoaded()
-            val h = LlamaLib.nativeLoad(path, contextTokens, threads)
+            val h = LlamaLib.nativeLoad(path, offset, contextTokens, threads)
             return if (h == 0L) null else LlamaModel(h)
         }
     }
@@ -56,7 +59,7 @@ internal object LlamaLib {
         }
     }
 
-    external fun nativeLoad(path: String, nCtx: Int, threads: Int): Long
+    external fun nativeLoad(path: String, offset: Long, nCtx: Int, threads: Int): Long
     external fun nativeFree(handle: Long)
     external fun nativeCancel(handle: Long)
     external fun nativeContextSize(handle: Long): Int
