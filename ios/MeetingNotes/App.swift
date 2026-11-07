@@ -22,7 +22,6 @@ struct MeetingListView: View {
     @Environment(AppModel.self) private var model
     @State private var query = ""
     @State private var showSettings = false
-    @State private var language = MeetingLanguage(rawValue: UserDefaults.standard.string(forKey: Keys.language) ?? "") ?? .automatic
     @State private var path: [String] = []
 
     var body: some View {
@@ -67,7 +66,7 @@ struct MeetingListView: View {
     private var recordBar: some View {
         VStack(spacing: 8) {
             Button {
-                Task { await model.startRecording(language: language) }
+                Task { await model.startRecording(language: MeetingLanguage(rawValue: UserDefaults.standard.string(forKey: Keys.language) ?? "") ?? .automatic) }
             } label: {
                 Label("Record", systemImage: "mic.fill")
                     .font(.title2.bold())
@@ -76,10 +75,6 @@ struct MeetingListView: View {
             .buttonStyle(.borderedProminent)
             .tint(.red)
             .accessibilityIdentifier("record")
-            Picker("Language", selection: $language) {
-                ForEach(MeetingLanguage.allCases) { Text($0.label).tag($0) }
-            }
-            .pickerStyle(.segmented)
         }
         .padding(.horizontal)
         .padding(.vertical, 10)
