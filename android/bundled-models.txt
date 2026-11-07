@@ -1,7 +1,8 @@
-# Models built into the APK as uncompressed assets (assets/models/<file>). Read by app/build.gradle.kts,
-# downloaded once at build time and checked against the SHA-256. Change a line to change the bundled model.
+# The default models, in the install-time asset pack :models as uncompressed assets (assets/models/<file>), so the app
+# works offline in every language right after install. Read by models/build.gradle.kts, downloaded once at build time
+# and checked against the SHA-256. The pack must stay under Play's 1.5 GB limit. Larger and language-specific models
+# are optional downloads in the app (Catalog.kt).
 # file  size  sha256  url
-ggml-kb-whisper-small-q5_0.bin  175209680  6768836a51abc902e420c613153e6d418c90ea2774e913274d02ab23170225b7  https://huggingface.co/KBLab/kb-whisper-small/resolve/main/ggml-model-q5_0.bin
 ggml-large-v3-turbo-q5_0.bin  574041195  394221709cd5ad1f40c46e6031ca61bce88931e6e088c188294c6d5a55ffa7e2  https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin
 ggml-silero-v5.1.2.bin  885098  29940d98d42b91fbd05ce489f3ecf7c72f0a42f027e4875919a28fb4c04ea2cf  https://huggingface.co/ggml-org/whisper-vad/resolve/main/ggml-silero-v5.1.2.bin
 gemma-3-1b-it-Q4_K_M.gguf  806058240  8ccc5cd1f1b3602548715ae25a66ed73fd5dc68a210412eea643eb20eb75a135  https://huggingface.co/ggml-org/gemma-3-1b-it-GGUF/resolve/main/gemma-3-1b-it-Q4_K_M.gguf

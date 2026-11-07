@@ -78,10 +78,11 @@ fun SettingsScreen(settings: Settings, onBack: () -> Unit) {
 
             HorizontalDivider()
             Section("Speech recognition")
-            Text("Built in: ${Catalog.whisperSwedish.label} for Swedish, and ${Catalog.whisperMultilingual.label} " +
-                "for Danish, English and other languages. With Automatic, the language is detected first.",
+            Text("Built in: ${Catalog.whisperMultilingual.label}, for every language. With Automatic, the language is detected first.",
                 style = MaterialTheme.typography.bodyMedium)
-            Text("Other languages than Swedish", style = MaterialTheme.typography.bodyLarge)
+            Text("Swedish", style = MaterialTheme.typography.bodyLarge)
+            OptionalModel(Catalog.whisperSwedish, tick, onDelete = { Models.delete(Catalog.whisperSwedish); refresh++ })
+            Text(if (Models.isReady(Catalog.whisperSwedish)) "Other languages than Swedish" else "Speed", style = MaterialTheme.typography.bodyLarge)
             var fast by remember { mutableStateOf(settings.fastSpeech) }
             Choice("Accurate (built in)", "Whisper large-v3-turbo. Takes about as long as the meeting on a recent phone.", !fast) {
                 fast = false; settings.fastSpeech = false
@@ -136,7 +137,7 @@ fun SettingsScreen(settings: Settings, onBack: () -> Unit) {
 
             HorizontalDivider()
             Text("Everything happens on this phone: recordings, transcripts and notes never leave it unless you share them. " +
-                "The models are built into the app; the internet is only used if you download one of the optional models.",
+                "The default models are built into the app; the internet is only used if you download one of the optional models.",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             processing?.takeIf { it.meetingId == null }?.let { p ->
                 Text(p.phase, style = MaterialTheme.typography.bodySmall)
@@ -184,6 +185,21 @@ private fun Choice(label: String, detail: String?, selected: Boolean, onClick: (
             Text(label, style = MaterialTheme.typography.bodyLarge)
             detail?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
         }
+    }
+}
+
+/** An optional download that's used automatically once it's on the phone. */
+@Composable
+private fun OptionalModel(m: ModelFile, tick: Any, onDelete: () -> Unit) {
+    val context = LocalContext.current
+    val ready = remember(tick) { Models.isReady(m) }
+    Row(Modifier.fillMaxWidth().padding(start = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+            Text("${m.label} · ${Catalog.size(m.bytes)}", style = MaterialTheme.typography.bodyLarge)
+            Text(m.description + if (ready) " Downloaded and in use." else "", style = MaterialTheme.typography.bodySmall)
+        }
+        if (ready) TextButton(onClick = onDelete) { Text("Delete") }
+        else OutlinedButton(onClick = { MeetingService.download(context, listOf(m.id)) }) { Text("Download") }
     }
 }
 

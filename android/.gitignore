@@ -7,3 +7,4 @@ local.properties
 .kotlin/
 *.keystore
 model-cache/
+models/src/main/assets/

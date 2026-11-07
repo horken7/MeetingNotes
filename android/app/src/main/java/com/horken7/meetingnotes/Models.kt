@@ -2,6 +2,7 @@ package com.horken7.meetingnotes
 
 import android.content.Context
 import android.os.Build
+import android.system.Os
 import com.horken7.meetingnotes.core.Catalog
 import com.horken7.meetingnotes.core.ModelFile
 import java.io.File
@@ -13,10 +14,13 @@ import java.net.UnknownHostException
 
 class UserFacingException(message: String) : Exception(message)
 
-/** Where a model's bytes are: [length] bytes from [offset] of [path] (the APK for built-in models). */
+/** Where a model's bytes are: [length] bytes from [offset] of [path] (an APK file for built-in models). */
 data class ModelSource(val path: String, val offset: Long, val length: Long)
 
-/** The models: built into the APK as uncompressed assets, or downloaded to the app's private storage. */
+/**
+ * The models: built in as uncompressed assets (from the install-time asset pack, which Play installs as a split APK,
+ * or inside the universal APK), or downloaded to the app's private storage.
+ */
 object Models {
     lateinit var dir: File
         private set
@@ -26,11 +30,12 @@ object Models {
     fun init(context: Context) {
         app = context.applicationContext
         dir = File(context.filesDir, "models").apply { mkdirs() }
-        // Built-in models are read in place: the APK file plus the asset's offset (it's stored uncompressed).
-        val apk = context.applicationInfo.sourceDir
-        for (m in Catalog.speechModels + Catalog.notesModels + Catalog.whisperFast) {
+        // Built-in models are read in place: the APK file that holds the asset (the base or the asset pack's split
+        // APK, found from the open file descriptor) plus the asset's offset in it (it's stored uncompressed).
+        for (m in Catalog.all) {
             runCatching { context.assets.openFd("models/${m.fileName}") }.getOrNull()?.use { fd ->
-                if (fd.length == m.bytes) bundled[m.id] = ModelSource(apk, fd.startOffset, fd.length)
+                val apk = runCatching { Os.readlink("/proc/self/fd/${fd.parcelFileDescriptor.fd}") }.getOrNull()
+                if (apk != null && fd.length == m.bytes) bundled[m.id] = ModelSource(apk, fd.startOffset, fd.length)
             }
         }
         cleanUp()
@@ -38,7 +43,7 @@ object Models {
 
     /** Deletes downloads the app no longer uses, e.g. models that are now built in. */
     private fun cleanUp() {
-        val keep = (Catalog.speechModels + Catalog.notesModels + Catalog.whisperFast).filter { it.id !in bundled }.map { it.fileName }.toSet() +
+        val keep = Catalog.all.filter { it.id !in bundled }.map { it.fileName }.toSet() +
             Catalog.vad.fileName
         dir.listFiles()?.filter { f -> keep.none { f.name == it || f.name == "$it.part" } }?.forEach { it.delete() }
     }

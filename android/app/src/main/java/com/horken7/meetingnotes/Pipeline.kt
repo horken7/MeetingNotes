@@ -63,11 +63,7 @@ class Pipeline(
         if (!Models.cpuSupported) throw UserFacingException(Models.cpuMessage)
         Wav.repair(audio)
 
-        if (!Catalog.speechModels.all { Models.isReady(it) }) {
-            ensure(Catalog.whisperMultilingual, "Downloading the speech model")
-            ensure(Catalog.whisperSwedish, "Downloading the speech model")
-            ensure(Catalog.vad, "Downloading the speech model")
-        }
+        for (m in Catalog.speechModels) ensure(m, "Downloading the speech model")   // only in builds without them
         val vad = Models.path(Catalog.vad)
         val total = Wav.sampleCount(audio)
         val rate = Wav.SAMPLE_RATE.toLong()
@@ -75,15 +71,17 @@ class Pipeline(
             Wav.rms(Wav.read(audio, start, length.toInt()))
         }
 
-        // Swedish goes to KB-Whisper, everything else to Whisper large-v3-turbo (or small, if the user chose speed
-        // and downloaded it), which also detects the language.
+        // The built-in Whisper large-v3-turbo, or the optional models once downloaded: KB-Whisper for Swedish, and
+        // Whisper small for other languages if the user chose speed.
         val fast = settings.fastSpeech && Models.isReady(Catalog.whisperFast)
+        val swedish = Models.isReady(Catalog.whisperSwedish)
         var language = settings.language
         if (language == "auto") {
             report("Detecting the language", null)
             language = detectLanguage(audio, total, if (fast) Catalog.whisperFast else Catalog.whisperMultilingual) ?: "auto"
         }
-        val speech = Catalog.speechModel(language, fast)
+        val speech = Catalog.speechModel(language, swedish, fast)
+        Log.i(TAG, "transcribing in $language with ${speech.id}")
         report("Transcribing", 0f)
         val model = load(speech)
         val segments = ArrayList<Segment>()

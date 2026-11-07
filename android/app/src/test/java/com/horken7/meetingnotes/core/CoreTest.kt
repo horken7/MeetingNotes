@@ -310,11 +310,16 @@ class CatalogTest {
         assertEquals(Catalog.gemma4b, Catalog.notesModel("gemma3-4b", 8 * gb))
         assertNull(Catalog.notesModel("auto", 2 * gb))
         assertTrue(Catalog.gemma1b.bundled && !Catalog.gemma4b.bundled)
-        assertEquals(Catalog.whisperSwedish, Catalog.speechModel("sv"))
+        assertEquals(Catalog.whisperMultilingual, Catalog.speechModel("sv"))
+        assertEquals(Catalog.whisperSwedish, Catalog.speechModel("sv", swedish = true))
+        assertEquals(Catalog.whisperSwedish, Catalog.betterSpeechModel("sv"))
+        assertNull(Catalog.betterSpeechModel("da"))
         assertEquals(Catalog.whisperMultilingual, Catalog.speechModel("da"))
         assertEquals(Catalog.whisperMultilingual, Catalog.speechModel("auto"))
         assertEquals(Catalog.whisperFast, Catalog.speechModel("en", fast = true))
-        assertEquals(Catalog.whisperSwedish, Catalog.speechModel("sv", fast = true))
+        assertEquals(Catalog.whisperSwedish, Catalog.speechModel("sv", swedish = true, fast = true))
+        assertEquals(Catalog.whisperFast, Catalog.speechModel("sv", fast = true))
+        assertFalse(Catalog.whisperSwedish.bundled)
         assertFalse(Catalog.whisperFast.bundled)
         assertEquals("175 MB", Catalog.size(Catalog.whisperSwedish.bytes))
         assertEquals("2.5 GB", Catalog.size(Catalog.gemma4b.bytes))
@@ -325,10 +330,12 @@ class CatalogTest {
         val listed = java.io.File("../bundled-models.txt").readLines().map { it.trim() }
             .filter { it.isNotEmpty() && !it.startsWith("#") }
             .map { it.split(Regex("\\s+")).let { p -> p[0] to p[1].toLong() } }.toSet()
-        val expected = (Catalog.speechModels + Catalog.notesModels).filter { it.bundled }.map { it.fileName to it.bytes }.toSet()
+        val expected = Catalog.all.filter { it.bundled }.map { it.fileName to it.bytes }.toSet()
         assertEquals(expected, listed)
-        // GitHub release assets must be under 2 GiB, with room for the app itself.
-        assertTrue(listed.sumOf { it.second } < 1_900_000_000L)
+        // Play allows 1.5 GB per asset pack (and GitHub 2 GiB per release file, with room for the app itself).
+        assertTrue(listed.sumOf { it.second } < 1_500_000_000L)
+        // Every language works out of the box: a multilingual speech model, voice detection and a notes model.
+        assertTrue(Catalog.speechModels.all { it.bundled } && Catalog.gemma1b.bundled)
     }
 
     @Test fun votesForTheLanguage() {

@@ -111,6 +111,11 @@ class Settings(context: Context) {
         get() = prefs.getString("notesInstructions", "") ?: ""
         set(v) = prefs.edit().putString("notesInstructions", if (v.trim() == Prompts.defaultInstructions) "" else v).apply()
 
+    /** Set once the first-launch language question was answered. */
+    var languageAsked: Boolean
+        get() = prefs.getBoolean("languageAsked", false)
+        set(v) = prefs.edit().putBoolean("languageAsked", v).apply()
+
     /** Whisper small instead of large-v3-turbo for languages other than Swedish, once downloaded. */
     var fastSpeech: Boolean
         get() = prefs.getBoolean("fastSpeech", false)

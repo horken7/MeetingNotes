@@ -1,8 +1,8 @@
 package com.horken7.meetingnotes.core
 
 /**
- * A model file: built into the APK ([bundled], from ../bundled-models.txt at build time) or downloaded on request
- * from Hugging Face (all public, no account needed). Bundled models can also be downloaded, for builds made without them.
+ * A model file: built into the app ([bundled]: the install-time asset pack, from ../bundled-models.txt) or an optional
+ * download from Hugging Face (all public, no account needed). Bundled models are downloaded too in builds made without them.
  */
 data class ModelFile(
     val id: String,
@@ -19,14 +19,15 @@ data class ModelFile(
 object Catalog {
     private const val GB = 1_000_000_000L
 
-    // Speech: KBLab's KB-Whisper small for Swedish (trained on 50,000 hours of Swedish; better on Swedish than
-    // OpenAI's whisper-large-v3) and Whisper large-v3-turbo for every other language and for detecting the language.
-    val whisperSwedish = ModelFile("kb-whisper-small", "KB-Whisper small (National Library of Sweden)",
-        "Swedish speech recognition.",
+    // Speech: Whisper large-v3-turbo is built in and handles every language (and detects it). KBLab's KB-Whisper small
+    // (trained on 50,000 hours of Swedish; better on Swedish than OpenAI's whisper-large-v3, and about 4 times faster
+    // than turbo) is an optional download that's used for Swedish once it's on the phone.
+    val whisperSwedish = ModelFile("kb-whisper-small", "KB-Whisper small for Swedish",
+        "From the National Library of Sweden: far fewer mistakes in Swedish than the built-in model, and about 4 times faster.",
         "https://huggingface.co/KBLab/kb-whisper-small/resolve/main/ggml-model-q5_0.bin",
-        "ggml-kb-whisper-small-q5_0.bin", 175_209_680, bundled = true)
+        "ggml-kb-whisper-small-q5_0.bin", 175_209_680)
     val whisperMultilingual = ModelFile("whisper-turbo", "Whisper large-v3-turbo (OpenAI)",
-        "Danish, English and other languages, and detecting the language.",
+        "All languages, and detecting the language.",
         "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin",
         "ggml-large-v3-turbo-q5_0.bin", 574_041_195, bundled = true)
 
@@ -41,11 +42,12 @@ object Catalog {
         "https://huggingface.co/ggml-org/whisper-vad/resolve/main/ggml-silero-v5.1.2.bin", "ggml-silero-v5.1.2.bin",
         885_098, bundled = true)
 
-    val speechModels = listOf(whisperSwedish, whisperMultilingual, vad)
+    /** The speech models the app needs, all built in. */
+    val speechModels = listOf(whisperMultilingual, vad)
 
     // Notes: Gemma 3 in GGUF from ggml-org, which (unlike Google's own LiteRT/Kaggle copies) needs no login.
-    // 1B is built in, so notes work offline from the first meeting; 4B (2.5 GB) doesn't fit in a release asset
-    // (GitHub's limit is 2 GB) and is an optional download for phones with 8 GB of memory.
+    // 1B is built in, so notes work offline from the first meeting; 4B (2.5 GB) doesn't fit in an asset pack (Play's
+    // limit is 1.5 GB) or a GitHub release file (2 GB) and is an optional download for phones with 8 GB of memory.
     val gemma1b = ModelFile("gemma3-1b", "Gemma 3 1B (built in)",
         "Works on most phones. Notes are simpler and it follows the format less reliably.",
         "https://huggingface.co/ggml-org/gemma-3-1b-it-GGUF/resolve/main/gemma-3-1b-it-Q4_K_M.gguf",
@@ -56,17 +58,22 @@ object Catalog {
         "gemma-3-4b-it-Q4_K_M.gguf", 2_489_757_856, minRamBytes = 7 * GB)
     val notesModels = listOf(gemma1b, gemma4b)
 
-    fun byId(id: String?): ModelFile? = (speechModels + notesModels + whisperFast).firstOrNull { it.id == id }
+    val all = speechModels + notesModels + whisperSwedish + whisperFast
+
+    fun byId(id: String?): ModelFile? = all.firstOrNull { it.id == id }
 
     /**
-     * The speech model for a language: KB-Whisper for Swedish; for other languages Whisper large-v3-turbo, or
-     * Whisper small when the user chose speed ([fast]) and has downloaded it.
+     * The speech model for a language: KB-Whisper for Swedish when it's downloaded ([swedish]); Whisper small when the
+     * user chose speed and has it ([fast]); otherwise the built-in Whisper large-v3-turbo.
      */
-    fun speechModel(language: String, fast: Boolean = false): ModelFile = when {
-        language == "sv" -> whisperSwedish
+    fun speechModel(language: String, swedish: Boolean = false, fast: Boolean = false): ModelFile = when {
+        language == "sv" && swedish -> whisperSwedish
         fast -> whisperFast
         else -> whisperMultilingual
     }
+
+    /** A better optional model for meetings in [language], if there is one: KB-Whisper for Swedish. */
+    fun betterSpeechModel(language: String): ModelFile? = if (language == "sv") whisperSwedish else null
 
     /** The notes model the user chose: the built-in 1B unless they picked 4B. Null when the phone has too little memory. */
     fun notesModel(choice: String?, totalRamBytes: Long): ModelFile? = when {

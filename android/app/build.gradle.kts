@@ -5,66 +5,12 @@ plugins {
     id("org.jetbrains.kotlin.plugin.serialization")
 }
 
-import java.io.FileOutputStream
-import java.net.HttpURLConnection
-import java.net.URI
-import java.security.MessageDigest
+import java.util.zip.ZipFile
 
-// Models built into the APK (see ../bundled-models.txt). -PnoBundledModels builds without them (the app then downloads
-// them on first use), which keeps debug builds small and quick.
+// The default models go in the install-time asset pack :models (see ../bundled-models.txt), so the app works offline
+// right after install, from Google Play (Play Asset Delivery) and in the universal APK for GitHub releases.
+// -PnoBundledModels leaves them out: a small build that downloads them on first use, for quick debug builds.
 val bundleModels = !project.hasProperty("noBundledModels")
-val modelCache = rootProject.file("model-cache")
-
-data class BundledModel(val file: String, val size: Long, val sha256: String, val url: String)
-
-val bundledModels: List<BundledModel> = rootProject.file("bundled-models.txt").readLines()
-    .map { it.trim() }.filter { it.isNotEmpty() && !it.startsWith("#") }
-    .map { it.split(Regex("\\s+")).let { p -> BundledModel(p[0], p[1].toLong(), p[2], p[3]) } }
-
-/** Downloads the bundled models into model-cache/assets/models (once; checked by SHA-256) and removes any others. */
-val downloadBundledModels by tasks.registering {
-    inputs.file(rootProject.file("bundled-models.txt"))
-    outputs.dir(File(modelCache, "assets/models"))
-    doLast {
-        val dir = File(modelCache, "assets/models").apply { mkdirs() }
-        val partial = File(modelCache, "partial").apply { mkdirs() }
-        dir.listFiles()?.filter { f -> bundledModels.none { it.file == f.name } }?.forEach { it.delete() }
-        for (m in bundledModels) {
-            val target = File(dir, m.file)
-            val verified = File(partial, m.file + ".verified")
-            if (target.length() == m.size && verified.exists() && verified.readText() == m.sha256) continue
-            val part = File(partial, m.file + ".part")
-            if (target.length() != m.size) {
-                logger.lifecycle("Downloading ${m.file} (${m.size / 1_000_000} MB)")
-                var url = URI(m.url).toURL()
-                var conn: HttpURLConnection
-                while (true) {
-                    conn = url.openConnection() as HttpURLConnection
-                    conn.instanceFollowRedirects = false
-                    conn.setRequestProperty("User-Agent", "MeetingNotes-build")
-                    if (part.length() in 1 until m.size) conn.setRequestProperty("Range", "bytes=${part.length()}-")
-                    if (conn.responseCode in 300..399) { url = URI(url.toString()).resolve(conn.getHeaderField("Location")).toURL(); continue }
-                    break
-                }
-                val append = conn.responseCode == 206
-                if (conn.responseCode != 200 && !append) throw GradleException("${m.url}: HTTP ${conn.responseCode}")
-                conn.inputStream.use { input -> FileOutputStream(part, append).use { input.copyTo(it, 1 shl 20) } }
-                part.renameTo(target)
-            }
-            val digest = MessageDigest.getInstance("SHA-256")
-            target.inputStream().use { input ->
-                val buf = ByteArray(1 shl 20)
-                while (true) { val n = input.read(buf); if (n < 0) break; digest.update(buf, 0, n) }
-            }
-            val sha = digest.digest().joinToString("") { "%02x".format(it) }
-            if (sha != m.sha256 || target.length() != m.size) {
-                target.delete()
-                throw GradleException("${m.file}: checksum mismatch (got $sha), deleted; run the build again")
-            }
-            verified.writeText(sha)
-        }
-    }
-}
 
 // Release signing: a keystore from the environment (CI secrets) when there is one, otherwise the debug key.
 val releaseKeystore = System.getenv("ANDROID_KEYSTORE_PATH")?.let { file(it) }?.takeIf { it.exists() }
@@ -79,7 +25,8 @@ android {
         // Android 10: the oldest version with the microphone-silencing callback used to detect phone calls,
         // and in practice the floor for phones with enough memory for on-device speech and language models.
         minSdk = 29
-        targetSdk = 35
+        // Google Play requires apps to target Android 16 (API 36) from August 2026.
+        targetSdk = 36
         versionCode = (System.getenv("VERSION_CODE") ?: "1").toInt()
         versionName = System.getenv("VERSION_NAME") ?: "0.1.0"
         ndk { abiFilters += listOf("arm64-v8a") }
@@ -115,14 +62,46 @@ android {
     }
     // Stored uncompressed, so the native code reads the models straight out of the installed APK (no copy).
     androidResources { noCompress += listOf("bin", "gguf") }
-    if (bundleModels) sourceSets["main"].assets.srcDir(File(modelCache, "assets").path)
+    if (bundleModels) assetPacks += listOf(":models")
     testOptions { unitTests.isReturnDefaultValues = true }
 }
 
 kotlin { jvmToolchain(17) }
 
-if (bundleModels) {
-    tasks.named("preBuild") { dependsOn(downloadBundledModels) }
+// The universal APK for GitHub releases: built from the app bundle by bundletool, so it contains the asset pack too.
+val bundletool by configurations.creating
+dependencies { bundletool("com.android.tools.build:bundletool:1.18.1") }
+
+/** Arguments for bundletool build-apks: the release bundle, signed like the app. */
+fun bundletoolArgs(mode: String, output: File): List<String> {
+    val sc = android.signingConfigs.findByName("release") ?: android.signingConfigs.getByName("debug")
+    return listOf("build-apks", "--mode=$mode", "--overwrite",
+        "--bundle=${layout.buildDirectory.file("outputs/bundle/release/app-release.aab").get().asFile}",
+        "--output=$output",
+        "--ks=${sc.storeFile}", "--ks-pass=pass:${sc.storePassword}",
+        "--ks-key-alias=${sc.keyAlias}", "--key-pass=pass:${sc.keyPassword}",
+        // The Maven bundletool has no aapt2 of its own; use the SDK's.
+        "--aapt2=${android.sdkDirectory}/build-tools/${android.buildToolsVersion}/aapt2")
+}
+
+val universalApk by tasks.registering(JavaExec::class) {
+    description = "Builds build/outputs/universal/MeetingNotes.apk from the release app bundle, with the models inside."
+    dependsOn("bundleRelease")
+    val aab = layout.buildDirectory.file("outputs/bundle/release/app-release.aab")
+    val apks = layout.buildDirectory.file("outputs/universal/MeetingNotes.apks")
+    val apk = layout.buildDirectory.file("outputs/universal/MeetingNotes.apk")
+    classpath = bundletool
+    mainClass.set("com.android.tools.build.bundletool.BundleToolMain")
+    doFirst { args(bundletoolArgs("universal", apks.get().asFile)) }
+    doLast {
+        ZipFile(apks.get().asFile).use { zip ->
+            zip.getInputStream(zip.getEntry("universal.apk")).use { input ->
+                apk.get().asFile.outputStream().use { input.copyTo(it, 1 shl 20) }
+            }
+        }
+        apks.get().asFile.delete()
+        logger.lifecycle("Universal APK: ${apk.get().asFile} (${apk.get().asFile.length()} bytes)")
+    }
 }
 
 dependencies {
@@ -144,4 +123,38 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.9.0")
 
     testImplementation("junit:junit:4.13.2")
+}
+
+
+/**
+ * Checks what Google Play would install: builds the split APKs from the bundle and fails if the base module is over
+ * Play's 200 MB limit, the asset pack over 1.5 GB, or a model isn't stored uncompressed (the app reads them in place).
+ */
+val checkPlaySplits by tasks.registering(JavaExec::class) {
+    dependsOn("bundleRelease")
+    val apks = layout.buildDirectory.file("outputs/splits/MeetingNotes.apks")
+    classpath = bundletool
+    mainClass.set("com.android.tools.build.bundletool.BundleToolMain")
+    doFirst { args(bundletoolArgs("default", apks.get().asFile)) }
+    doLast {
+        ZipFile(apks.get().asFile).use { zip ->
+            val sizes = zip.entries().asSequence().filter { it.name.endsWith(".apk") }.associate { it.name to it.size }
+            sizes.toSortedMap().forEach { (name, size) -> logger.lifecycle("%-45s %,15d bytes".format(name, size)) }
+            val base = sizes.filterKeys { it.startsWith("splits/base") }.values.sum()
+            val pack = sizes.filterKeys { it.contains("models") }.values.sum()
+            logger.lifecycle("Base module (all splits): %,d bytes; models asset pack: %,d bytes".format(base, pack))
+            if (base > 200_000_000) throw GradleException("The base module is over Play's 200 MB limit")
+            if (pack > 1_500_000_000) throw GradleException("The models asset pack is over Play's 1.5 GB limit")
+            val packEntry = zip.entries().asSequence().first { it.name.contains("models") && it.name.endsWith(".apk") }
+            val tmp = File(temporaryDir, "pack.apk")
+            zip.getInputStream(packEntry).use { input -> tmp.outputStream().use { input.copyTo(it, 1 shl 20) } }
+            ZipFile(tmp).use { pz ->
+                val models = pz.entries().asSequence().filter { it.name.startsWith("assets/models/") }.toList()
+                models.forEach { logger.lifecycle("  ${it.name}: ${if (it.method == 0) "stored" else "COMPRESSED"}") }
+                if (models.isEmpty() || models.any { it.method != 0 }) throw GradleException("The models must be stored uncompressed")
+            }
+            tmp.delete()
+        }
+        logger.lifecycle("Split APKs: ${apks.get().asFile}")
+    }
 }
