@@ -1,6 +1,6 @@
 // The product name and links live here, and only here. Change `name` to rebrand the whole site.
 export const site = {
-  name: "Ekko Notes",
+  name: "Meeting Notes",
   // Short line used in the <title> and social previews.
   tagline: "Private meeting notes, without the bot",
   description:
@@ -12,7 +12,7 @@ export const site = {
   // Where buyers get help.
   supportEmail: "hello@frinkle.se",
   // Seller shown on the legal pages. Replace with your company name and address before selling.
-  legalEntity: "Ekko Notes (sole trader, Sweden)",
+  legalEntity: "Meeting Notes (sole trader, Sweden)",
 } as const;
 
 export function siteUrl(): string {

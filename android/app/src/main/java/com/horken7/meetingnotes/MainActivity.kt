@@ -21,6 +21,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
 import com.horken7.meetingnotes.ui.DetailScreen
@@ -84,8 +85,9 @@ private fun AppTheme(content: @Composable () -> Unit) {
     val context = LocalContext.current
     val colors = when {
         Build.VERSION.SDK_INT >= 31 -> if (dark) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
-        dark -> darkColorScheme()
-        else -> lightColorScheme()
+        // Before Android 12 (no wallpaper colors): the app icon's green.
+        dark -> darkColorScheme(primary = Color(0xFF7FCBA9), onPrimary = Color(0xFF0B3A2C))
+        else -> lightColorScheme(primary = Color(0xFF2E7D5B), onPrimary = Color.White)
     }
     MaterialTheme(colorScheme = colors, content = content)
 }

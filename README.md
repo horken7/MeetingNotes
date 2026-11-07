@@ -1,4 +1,8 @@
+<img src="docs/images/icon.png" width="80" alt="Meeting Notes icon" align="right">
+
 # Meeting Notes
+
+**Mac · Windows · Android · iPhone**
 
 A small native macOS app that records your video calls, transcribes them **on your Mac** with
 [whisper.cpp](https://github.com/ggml-org/whisper.cpp), and writes structured meeting notes with
