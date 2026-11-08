@@ -249,6 +249,9 @@ requests): `packaging/build-whisper.sh` builds a static, universal `whisper-cli`
 
 `docs/VERIFY.md` is the manual end-to-end checklist (permissions, recording, languages, auto-detection, robustness).
 
+Pull request titles follow Conventional Commits, and releases are versioned and published by release-please: see
+[CONTRIBUTING.md](CONTRIBUTING.md).
+
 ## License
 
 MIT, see [LICENSE](LICENSE).
