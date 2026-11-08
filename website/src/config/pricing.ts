@@ -1,6 +1,6 @@
 import type { Platform } from "./site";
 
-// All prices are placeholders. Amounts are in cents, VAT included (see `taxBehavior`).
+// Amounts are in cents, VAT included (see `taxBehavior`; Stripe Tax works out the VAT at checkout).
 export const currency = "eur";
 export const taxBehavior = "inclusive" as const;
 

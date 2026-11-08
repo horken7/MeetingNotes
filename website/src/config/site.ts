@@ -11,7 +11,7 @@ export const site = {
   releasesUrl: "https://github.com/horken7/MeetingNotes/releases/latest",
   // Where buyers get help.
   supportEmail: "hello@frinkle.se",
-  // Seller shown on the legal pages. Replace with your company name and address before selling.
+  // Seller shown on the legal pages.
   legalEntity: "Frinkle AB (Sweden)",
 } as const;
 

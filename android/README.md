@@ -78,7 +78,7 @@ whisper.cpp and llama.cpp: the ggml authors, MIT License.
 - Kotlin and Jetpack Compose; `:app`, plus `:whisper` and `:llama`, which build whisper.cpp v1.9.5 and llama.cpp
   b11800 from source with the NDK (each with its own static, hidden copy of ggml). Only `arm64-v8a` is built, for
   ARMv8.2 with dot product and fp16 (the app checks the processor before loading them).
-- minSdk 29 (Android 10), targetSdk 35. The models come from public Hugging Face repositories that need no login:
+- minSdk 29 (Android 10), targetSdk 36. The models come from public Hugging Face repositories that need no login:
   `KBLab/kb-whisper-small`, `ggerganov/whisper.cpp`, `ggml-org/whisper-vad`, `ggml-org/gemma-3-1b-it-GGUF`,
   `ggml-org/gemma-3-4b-it-GGUF`.
 - The built-in models (Whisper large-v3-turbo, Silero VAD, Gemma 3 1B: 1.38 GB) are listed with their size and SHA-256

@@ -7,7 +7,7 @@ export default function Terms() {
   return (
     <article className="prose-legal mx-auto max-w-3xl px-4 py-16 sm:px-6">
       <h1 className="text-4xl font-semibold tracking-tight">Terms of sale</h1>
-      <p className="mt-2 text-sm text-zinc-500">Last updated: 6 November 2026</p>
+      <p className="mt-2 text-sm text-zinc-500">Last updated: 8 November 2026</p>
 
       <h2>What you buy</h2>
       <p>
@@ -23,8 +23,8 @@ export default function Terms() {
 
       <h2>Payment and prices</h2>
       <p>
-        Payment is processed by Stripe. Prices are shown in euros and include VAT where it applies. You receive a receipt by email
-        from Stripe.
+        Payment is processed by Stripe. Prices are shown in euros and include VAT (Swedish VAT, as the seller is a Swedish
+        company). Stripe calculates the VAT at checkout and shows it on the receipt it sends you by email.
       </p>
 
       <h2>Delivery and right of withdrawal</h2>
