@@ -60,7 +60,7 @@ storage, free some space first (don't uninstall the old version: that deletes yo
 
 In the app's private storage, one folder per meeting, laid out like the Mac app's: `meta.json`, `transcript.md`
 (`[m:ss] text` lines, without speaker names since one microphone records the whole room), `notes.md` and
-`audio.wav` (16 kHz mono). Use **Share files** or **Save to Files or Drive** in a meeting's menu to copy them out.
+`audio.wav` (16 kHz mono). Use **Share…** to send the transcript to the Claude app (or another AI app) with a request to write the notes, so they’re written with your own subscription; it can also share the notes. Use **Share files** or **Save to Files or Drive** in a meeting's menu to copy them out.
 Uninstalling the app deletes them.
 
 ## Licences
