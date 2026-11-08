@@ -45,7 +45,7 @@ struct MeetingListView: View {
                 }
             }
             .environment(\.editMode, $editMode)
-            .deleteDialog(for: editMode.isEditing ? [] : pendingDelete, onCancel: { pendingDelete = [] }, onDelete: delete)
+            .deleteDialog(for: pendingDelete, onCancel: { pendingDelete = [] }, onDelete: delete)
             .sensoryFeedback(.impact(weight: .light), trigger: deletedCount)
             .overlay {
                 if model.meetings.isEmpty {
@@ -98,7 +98,6 @@ struct MeetingListView: View {
                 pendingDelete = model.meetings.filter { selection.contains($0.id) }
             }
             .disabled(selection.isEmpty)
-            .deleteDialog(for: editMode.isEditing ? pendingDelete : [], onCancel: { pendingDelete = [] }, onDelete: delete)
         }
         .padding(.horizontal)
         .padding(.vertical, 12)
@@ -228,14 +227,14 @@ struct LevelMeter: View {
 
 
 extension View {
-    /// The confirmation before deleting meetings, as an action sheet like Apple's apps: "Delete "Title"?" for one
+    /// The confirmation before deleting meetings: "Delete "Title"?" for one
     /// meeting, "Delete 3 Meetings?" for several. Shown while `meetings` isn't empty.
     func deleteDialog(for meetings: [Meeting], onCancel: @escaping () -> Void, onDelete: @escaping ([Meeting]) -> Void) -> some View {
         let one = meetings.count == 1
         let title = one ? "Delete \u{201C}\(meetings[0].title)\u{201D}?" : "Delete \(meetings.count) Meetings?"
-        return confirmationDialog(title, isPresented: Binding(get: { !meetings.isEmpty }, set: { if !$0 { onCancel() } }),
-                                  titleVisibility: .visible) {
-            Button(one ? "Delete Meeting" : "Delete \(meetings.count) Meetings", role: .destructive) { onDelete(meetings) }
+        // A centered alert: on iOS 26 a confirmation dialog is a popover anchored to a view that may be moving.
+        return alert(title, isPresented: Binding(get: { !meetings.isEmpty }, set: { if !$0 { onCancel() } })) {
+            Button("Delete", role: .destructive) { onDelete(meetings) }
             Button("Cancel", role: .cancel) { onCancel() }
         } message: {
             Text(one ? "The transcript and notes will be deleted. This can't be undone."

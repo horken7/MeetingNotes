@@ -90,8 +90,9 @@ struct ModelRow: View {
             }
         }
         .padding(.vertical, 2)
-        .confirmationDialog("Delete \(model.label)?", isPresented: $confirmDelete, titleVisibility: .visible) {
-            Button("Delete model", role: .destructive) { app.deleteModel(model) }
+        .alert("Delete \(model.label)?", isPresented: $confirmDelete) {
+            Button("Delete", role: .destructive) { app.deleteModel(model) }
+            Button("Cancel", role: .cancel) {}
         } message: {
             Text("Frees \(Catalog.size(model.bytes)). You can download it again later.")
         }
