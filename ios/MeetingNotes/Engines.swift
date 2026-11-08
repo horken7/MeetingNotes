@@ -169,10 +169,10 @@ final class LlamaEngine: @unchecked Sendable {
 
         let sampler = llama_sampler_chain_init(llama_sampler_chain_default_params())!
         defer { llama_sampler_free(sampler) }
-        llama_sampler_chain_add(sampler, llama_sampler_init_penalties(llama_vocab_n_tokens(vocab), 64, 1.1, 0, 0))
-        llama_sampler_chain_add(sampler, llama_sampler_init_top_k(40))
-        llama_sampler_chain_add(sampler, llama_sampler_init_top_p(0.9, 1))
-        llama_sampler_chain_add(sampler, llama_sampler_init_temp(0.3))
+        llama_sampler_chain_add(sampler, llama_sampler_init_penalties(llama_vocab_n_tokens(vocab), NotesSampling.repeatLastN, NotesSampling.repeatPenalty, 0, 0))
+        llama_sampler_chain_add(sampler, llama_sampler_init_top_k(NotesSampling.topK))
+        llama_sampler_chain_add(sampler, llama_sampler_init_top_p(NotesSampling.topP, 1))
+        llama_sampler_chain_add(sampler, llama_sampler_init_temp(NotesSampling.temperature))
         llama_sampler_chain_add(sampler, llama_sampler_init_dist(UInt32.random(in: 0...UInt32.max)))
 
         var out = Data()

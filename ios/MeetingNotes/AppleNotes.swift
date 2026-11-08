@@ -36,7 +36,8 @@ enum AppleNotes {
         var generator = NotesGenerator(maxChars: NotesGenerator.maxChars(contextTokens: model.contextSize), generate: { system, prompt in
             let session = LanguageModelSession(model: model, instructions: system)
             do {
-                return try await session.respond(to: prompt, options: GenerationOptions(temperature: 0.3)).content
+                return try await session.respond(to: prompt, options: GenerationOptions(temperature: Double(NotesSampling.temperature),
+                                                                                        maximumResponseTokens: NotesSampling.maxAnswerTokens)).content
             } catch let error as LanguageModelSession.GenerationError {
                 switch error {
                 case .exceededContextWindowSize:

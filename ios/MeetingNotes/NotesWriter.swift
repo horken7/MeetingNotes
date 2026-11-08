@@ -41,7 +41,7 @@ enum NotesEngine: String, CaseIterable, Identifiable {
 enum NotesWriter {
     /// Tokens of context for Gemma: about 20 minutes of speech per part, with room for the answer.
     static let contextTokens = 8192
-    static let maxAnswerTokens = 1200
+    static let maxAnswerTokens = NotesSampling.maxAnswerTokens
 
     /// Whether Gemma 3 4B can be loaded now: an 8 GB iPhone, and enough of the app's memory allowance free for
     /// the weights, the context and the compute buffers.
