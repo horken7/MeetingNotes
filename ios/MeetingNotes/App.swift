@@ -24,21 +24,29 @@ struct MeetingListView: View {
     @State private var query = ""
     @State private var showSettings = false
     @State private var path: [String] = []
-    @State private var pendingDelete: Meeting?
+    /// The meetings waiting for the user to confirm deleting them (one from a swipe, several from Edit).
+    @State private var pendingDelete: [Meeting] = []
+    @State private var selection: Set<String> = []
+    @State private var editMode: EditMode = .inactive
+    @State private var deletedCount = 0
     @AppStorage(Keys.onboarded) private var onboarded = false
 
     var body: some View {
         @Bindable var model = model
         NavigationStack(path: $path) {
-            List {
+            List(selection: editMode.isEditing ? $selection : nil) {
                 ForEach(model.filtered(query)) { m in
                     NavigationLink(value: m.id) { MeetingRow(meeting: m) }
-                }
-                .onDelete { idx in
-                    // Ask first; nothing is deleted until the user confirms.
-                    pendingDelete = idx.first.map { model.filtered(query)[$0] }
+                        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                            Button(role: .destructive) { pendingDelete = [m] } label: {
+                                Label("Delete", systemImage: "trash")
+                            }
+                        }
                 }
             }
+            .environment(\.editMode, $editMode)
+            .deleteDialog(for: editMode.isEditing ? [] : pendingDelete, onCancel: { pendingDelete = [] }, onDelete: delete)
+            .sensoryFeedback(.impact(weight: .light), trigger: deletedCount)
             .overlay {
                 if model.meetings.isEmpty {
                     ContentUnavailableView("No meetings yet", systemImage: "waveform",
@@ -51,23 +59,27 @@ struct MeetingListView: View {
             .navigationTitle("Meetings")
             .navigationDestination(for: String.self) { id in MeetingDetailView(id: id) }
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    if !model.meetings.isEmpty {
+                        Button(editMode.isEditing ? "Done" : "Edit") {
+                            withAnimation { editMode = editMode.isEditing ? .inactive : .active }
+                            selection = []
+                        }
+                    }
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Settings", systemImage: "gearshape") { showSettings = true }
+                        .disabled(editMode.isEditing)
                 }
             }
-            .safeAreaInset(edge: .bottom) { recordBar }
+            .safeAreaInset(edge: .bottom) {
+                if editMode.isEditing { editBar } else { recordBar }
+            }
             .sheet(isPresented: $showSettings) { SettingsView().environment(model) }
             .sheet(isPresented: Binding(get: { !onboarded && !Benchmark.enabled }, set: { if !$0 { onboarded = true } })) {
                 WelcomeView { onboarded = true }
                     .environment(model)
                     .interactiveDismissDisabled()
-            }
-            .confirmationDialog("Delete \"\(pendingDelete?.title ?? "")\"?",
-                                isPresented: Binding(get: { pendingDelete != nil }, set: { if !$0 { pendingDelete = nil } }),
-                                titleVisibility: .visible, presenting: pendingDelete) { m in
-                Button("Delete meeting", role: .destructive) { model.delete(m); pendingDelete = nil }
-            } message: { _ in
-                Text("The notes, transcript and audio are deleted from this iPhone.")
             }
             .fullScreenCover(isPresented: Binding(get: { model.isRecording }, set: { _ in })) {
                 RecordingView { id in path = [id] }.environment(model)
@@ -76,6 +88,29 @@ struct MeetingListView: View {
                 Button("OK") { model.alert = nil }
             } message: { Text(model.alert ?? "") }
         }
+    }
+
+    /// In Edit: delete the selected meetings.
+    private var editBar: some View {
+        HStack {
+            Spacer()
+            Button(selection.isEmpty ? "Delete" : "Delete (\(selection.count))", role: .destructive) {
+                pendingDelete = model.meetings.filter { selection.contains($0.id) }
+            }
+            .disabled(selection.isEmpty)
+            .deleteDialog(for: editMode.isEditing ? pendingDelete : [], onCancel: { pendingDelete = [] }, onDelete: delete)
+        }
+        .padding(.horizontal)
+        .padding(.vertical, 12)
+        .background(.bar)
+    }
+
+    private func delete(_ meetings: [Meeting]) {
+        pendingDelete = []
+        withAnimation { model.delete(meetings) }
+        selection = []
+        if model.meetings.isEmpty { editMode = .inactive }
+        deletedCount += 1
     }
 
     private var recordBar: some View {
@@ -188,5 +223,23 @@ struct LevelMeter: View {
             }
         }
         .accessibilityLabel("Input level")
+    }
+}
+
+
+extension View {
+    /// The confirmation before deleting meetings, as an action sheet like Apple's apps: "Delete "Title"?" for one
+    /// meeting, "Delete 3 Meetings?" for several. Shown while `meetings` isn't empty.
+    func deleteDialog(for meetings: [Meeting], onCancel: @escaping () -> Void, onDelete: @escaping ([Meeting]) -> Void) -> some View {
+        let one = meetings.count == 1
+        let title = one ? "Delete \u{201C}\(meetings[0].title)\u{201D}?" : "Delete \(meetings.count) Meetings?"
+        return confirmationDialog(title, isPresented: Binding(get: { !meetings.isEmpty }, set: { if !$0 { onCancel() } }),
+                                  titleVisibility: .visible) {
+            Button(one ? "Delete Meeting" : "Delete \(meetings.count) Meetings", role: .destructive) { onDelete(meetings) }
+            Button("Cancel", role: .cancel) { onCancel() }
+        } message: {
+            Text(one ? "The transcript and notes will be deleted. This can't be undone."
+                     : "The transcripts and notes will be deleted. This can't be undone.")
+        }
     }
 }

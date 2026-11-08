@@ -12,6 +12,7 @@ struct MeetingDetailView: View {
     @State private var renaming = false
     @State private var newTitle = ""
     @State private var confirmDelete = false
+    @State private var deleted = 0
     @State private var audioGone = false
     @State private var exporting = false
     @State private var exportDocument = MarkdownFile(text: "")
@@ -82,14 +83,17 @@ struct MeetingDetailView: View {
         } message: {
             Text("The audio was deleted when the transcript was made, so the transcript can't be redone or made in another language. To keep the audio of future meetings, turn on Keep audio recordings in Settings.")
         }
-        .confirmationDialog("Delete \"\(m.title)\"?", isPresented: $confirmDelete, titleVisibility: .visible) {
-            Button("Delete meeting", role: .destructive) {
-                model.delete(m)
-                dismiss()
+        .deleteDialog(for: confirmDelete ? [m] : [], onCancel: { confirmDelete = false }) { meetings in
+            confirmDelete = false
+            // Back to the list first, then delete, so the list animates the row away.
+            dismiss()
+            Task {
+                try? await Task.sleep(for: .milliseconds(400))
+                withAnimation { model.delete(meetings) }
+                deleted += 1
             }
-        } message: {
-            Text("The notes, transcript and audio are deleted from this iPhone.")
         }
+        .sensoryFeedback(.impact(weight: .light), trigger: deleted)
         .fileExporter(isPresented: $exporting, document: exportDocument, contentType: MarkdownFile.markdown,
                       defaultFilename: exportName) { _ in }
     }
@@ -144,7 +148,7 @@ struct MeetingDetailView: View {
                     .disabled(busy)
             }
             Divider()
-            Button("Delete meeting", systemImage: "trash", role: .destructive) { confirmDelete = true }
+            Button("Delete Meeting", systemImage: "trash", role: .destructive) { confirmDelete = true }
                 .disabled(busy || model.recorder?.folder == m.folder)
         } label: {
             Label("More", systemImage: "ellipsis.circle")
