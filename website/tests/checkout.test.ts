@@ -15,6 +15,8 @@ test("inline price, tax off by default", () => {
   assert.equal(li.price_data?.currency, "eur");
   assert.equal(li.price_data?.tax_behavior, "inclusive");
   assert.equal(p.metadata?.product, "mac");
+  assert.equal(p.metadata?.app, "meeting-notes");
+  assert.equal(p.payment_intent_data?.statement_descriptor_suffix, "MEETING NOTES");
   assert.equal(p.success_url, `${base}/success?session_id={CHECKOUT_SESSION_ID}`);
 });
 
@@ -39,4 +41,10 @@ test("webhook signature check accepts signed and rejects tampered payloads", () 
   const header = stripe.webhooks.generateTestHeaderString({ payload, secret });
   assert.equal(stripe.webhooks.constructEvent(payload, header, secret).id, "evt_1");
   assert.throws(() => stripe.webhooks.constructEvent(payload + " ", header, secret));
+});
+
+test("promotion codes are allowed for single apps but not the bundle", () => {
+  assert.equal(checkoutParams("mac", "https://x", {}).allow_promotion_codes, true);
+  assert.equal(checkoutParams("android", "https://x", {}).allow_promotion_codes, true);
+  assert.equal(checkoutParams("bundle", "https://x", {}).allow_promotion_codes, false);
 });
