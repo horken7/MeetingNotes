@@ -80,7 +80,11 @@ public struct MeetingStore: Sendable {
         guard let dirs = try? fm.contentsOfDirectory(
             at: root, includingPropertiesForKeys: [.creationDateKey], options: [.skipsHiddenFiles]
         ) else { return [] }
-        let meetings: [Meeting] = dirs.compactMap { dir in
+        let meetings: [Meeting] = dirs.compactMap { listed in
+            // Spell the folder from `root`, as `newFolder` does: listing can return the symlink-resolved path
+            // (/private/var/… for an iPhone's /var/… Documents folder), and a meeting's id is its path, so the
+            // meeting opened after recording would otherwise be "not found".
+            let dir = root.appendingPathComponent(listed.lastPathComponent, isDirectory: true)
             guard let meta = Self.readMeta(dir) else { return nil }
             let created = meta.created
                 ?? (try? dir.resourceValues(forKeys: [.creationDateKey]))?.creationDate

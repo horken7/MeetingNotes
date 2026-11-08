@@ -112,6 +112,18 @@ import Testing
         #expect(MeetingStore.audioFiles(a).map(\.lastPathComponent) == ["audio.caf", "audio-1.caf", "audio-2.caf", "audio-10.caf"])
     }
 
+    /// The id the app opens after recording (the new folder's path) must be the id the list has for it.
+    /// The temporary directory, like an iPhone's Documents folder, is under /var, a symlink to /private/var,
+    /// and listing a directory can spell its children with the resolved path.
+    @Test func newFolderIdMatchesListedId() throws {
+        let store = MeetingStore(root: try tempRoot())
+        let folder = try store.newFolder(title: "Meeting", date: Date())
+        MeetingStore.writeMeta(Meta(title: "Meeting", created: Date(), status: "transcribing"), to: folder)
+        let all = store.loadAll()
+        #expect(all.map(\.id) == [folder.path])
+        #expect(all.first?.status == "transcribing")
+    }
+
     @Test func renameUpdatesHeadings() throws {
         let root = try tempRoot()
         MeetingStore.writeMeta(Meta(title: "Old"), to: root)
@@ -136,7 +148,8 @@ import Testing
     @Test func defaultInstructionsFollowTheMacApp() {
         let i = NotesPrompt.defaultInstructions
         #expect(i.hasPrefix("Write the notes in the main language spoken in the meeting"))
-        #expect(i.contains("## Action items"))
+        #expect(i.contains("Action items"))
+        #expect(!i.contains("(3 to 5 sentences)"))   // small models copy hints in headings into the notes
         #expect(!i.contains("Others"))
         #expect(NotesPrompt.effectiveInstructions("  ") == i)
         #expect(NotesPrompt.effectiveInstructions("Just bullets") == "Just bullets")
@@ -144,7 +157,11 @@ import Testing
 
     @Test func prompts() {
         let sys = NotesPrompt.system(language: .danish)
-        #expect(sys.contains("Write in Danish."))
+        #expect(sys.contains("so write in Danish."))
+        #expect(NotesPrompt.single(title: "T", instructions: "I", transcript: "X", language: .swedish)
+            .hasSuffix("X\n\nWrite the notes in Swedish, headings included."))
+        #expect(NotesPrompt.part(1, of: 2, language: .danish, transcript: "X").hasSuffix("Write the notes in Danish, headings included."))
+        #expect(!NotesPrompt.single(title: "T", instructions: "I", transcript: "X").contains("headings included"))
         #expect(sys.contains("\"Speaker\""))
         #expect(!sys.contains("notes are for"))
         #expect(NotesPrompt.system(language: .english, name: "Anna").contains("The notes are for Anna, who recorded the meeting."))
@@ -185,15 +202,141 @@ import Testing
         func add(_ p: String) -> Int { prompts.append(p); return prompts.count }
     }
 
+    @Test func theTranscriptReachesThePrompt() async throws {
+        let calls = Calls()
+        let gen = NotesGenerator(maxChars: 6000) { system, prompt in
+            _ = await calls.add(system + "\n---\n" + prompt)
+            return "## Sammanfattning\nOk"
+        }
+        let sentence = "Hej, jag heter Johan. Jag är 33 år och bor i Århus. Var bor du?"
+        let transcript = (0..<4).map { "[0:\(String(format: "%02d", $0 * 10))] **Speaker:** \(sentence)" }.joined(separator: "\n\n")
+        _ = try await gen.notes(transcript: transcript, title: "Möte", language: .swedish, instructions: NotesPrompt.defaultInstructions)
+        let sent = await calls.prompts
+        #expect(sent.count == 1)
+        #expect(sent[0].contains(sentence))
+        #expect(sent[0].contains("Swedish"))
+        // No example meeting the model could copy.
+        for word in ["marketing", "influencer", "Maria", "campaign"] { #expect(!sent[0].localizedCaseInsensitiveContains(word)) }
+    }
+
+    @Test func swedishNotesStartInSwedish() async throws {
+        let calls = Calls()
+        var gen = NotesGenerator(maxChars: 6000) { _, _ in "unused" }
+        gen.generatePrefixed = { _, prompt, prefix in
+            _ = await calls.add(prompt + "|PREFIX|" + prefix)
+            return "Johan berättade om sig själv."
+        }
+        let line = "[0:00] **Speaker:** " + String(repeating: "Hej jag heter Johan och bor i Århus. ", count: 5)
+        let notes = try await gen.notes(transcript: line, title: "Möte", language: .swedish, instructions: NotesPrompt.defaultInstructions)
+        #expect(notes == "## Sammanfattning\nJohan berättade om sig själv.")
+        let sent = await calls.prompts
+        #expect(sent[0].hasSuffix("|PREFIX|## Sammanfattning\n"))
+        #expect(sent[0].contains("Sammanfattning, Beslut, Att göra, Öppna frågor, Viktiga punkter"))
+        #expect(!sent[0].contains("Summary, Decisions"))
+        // Custom instructions: no prefix, nothing replaced.
+        #expect(NotesPrompt.answerPrefix(.swedish, instructions: "Bara punkter") == nil)
+        #expect(NotesPrompt.localized("Bara punkter", .swedish) == "Bara punkter")
+        #expect(NotesPrompt.answerPrefix(.automatic, instructions: NotesPrompt.defaultInstructions) == nil)
+    }
+
+    @Test func tidyNotes() {
+        let raw = """
+        ## Beslut
+        - [ ]  Identifiera Paleolitikum
+        - [ ]  Identifiera paleolitikum
+        - Undersöka A
+        - Undersöka B
+        - Undersöka C
+        - Undersöka D
+        - Undersöka E
+        - Undersöka F
+
+        ## Att göra (Checklista)
+        - Skicka offerten
+        - [x] Boka rum
+        """
+        #expect(NotesTidy.tidy(raw, language: .swedish) == """
+        ## Beslut
+        - Identifiera Paleolitikum
+        - Undersöka A
+        - Undersöka B
+        - Undersöka C
+        - Undersöka D
+        - Undersöka E
+
+        ## Att göra
+        - [ ] Skicka offerten
+        - [x] Boka rum
+        """)
+    }
+
+    @Test func tidySummary() {
+        let raw = "## Sammanfattning\nEtt. Två. Ett. Tre. Fyra. Fem. Sex.\n\n## Beslut\n- A"
+        #expect(NotesTidy.tidy(raw, language: .swedish) == "## Sammanfattning\nEtt. Två. Tre. Fyra. Fem.\n\n## Beslut\n- A")
+    }
+
+    @Test func emptySubheadingsAreRemoved() {
+        let raw = "## Viktiga punkter\n\n**Ett:**\n- A\n\n**Två:**\n\n**Tre:**"
+        #expect(NotesTidy.tidy(raw, language: .swedish) == "## Viktiga punkter\n\n**Ett:**\n- A")
+    }
+
+    @Test func chatterIsRemoved() {
+        let gen = NotesGenerator(maxChars: 1000) { _, _ in "" }
+        let raw = "Okay, here are the notes based on the transcript.\n\n## Sammanfattning\nText.\n\n- punkt\n\nI have focused on the transcript."
+        #expect(gen.clean(raw) == "## Sammanfattning\nText.\n\n- punkt")
+        #expect(gen.clean("## Beslut\n- Inget nämndes") == "## Beslut\n- Inget nämndes")
+    }
+
+    @Test func aFewWordsSkipTheModel() async throws {
+        let calls = Calls()
+        let gen = NotesGenerator(maxChars: 6000) { _, prompt in _ = await calls.add(prompt); return "invented" }
+        let notes = try await gen.notes(transcript: "[0:00] **Speaker:** Hej, jag heter Johan. Jag är 33 år och bor i Århus. Var bor du?",
+                                        title: "Möte", language: .swedish, instructions: NotesPrompt.defaultInstructions)
+        #expect(notes == NotesPrompt.tooLittle(.swedish))
+        #expect(await calls.prompts.isEmpty)
+    }
+
     @Test func shortTranscriptIsOneCall() async throws {
         let calls = Calls()
         let gen = NotesGenerator(maxChars: 1000) { _, prompt in
             _ = await calls.add(prompt)
             return "```markdown\n## Summary\nShort.\n```"
         }
-        let notes = try await gen.notes(transcript: "[0:00] **Speaker:** Hi", title: "T", language: .english, instructions: "I")
+        let transcript = "[0:00] **Speaker:** " + String(repeating: "hi ", count: 40)
+        let notes = try await gen.notes(transcript: transcript, title: "T", language: .english, instructions: "I")
         #expect(notes == "## Summary\nShort.")
         #expect(await calls.prompts.count == 1)
+    }
+
+    @Test func tooShortTranscriptSkipsTheModel() async throws {
+        let calls = Calls()
+        let gen = NotesGenerator(maxChars: 1000) { _, prompt in
+            _ = await calls.add(prompt)
+            return "invented"
+        }
+        let transcript = "[0:00] **Speaker:** Hej, ska vi börja?\n\n[0:05] **Speaker:** Ja, tack."
+        let notes = try await gen.notes(transcript: transcript, title: "T", language: .swedish, instructions: "I")
+        #expect(notes == NotesPrompt.tooLittle(.swedish))
+        #expect(try await gen.notes(transcript: "  ", title: "T", language: .english, instructions: "I") == NotesPrompt.tooLittle(.english))
+        #expect(await calls.prompts.isEmpty)
+        #expect(NotesPrompt.wordCount(transcript) == 6)
+    }
+
+    @Test func everyCallIsGrounded() async throws {
+        let gen = NotesGenerator(maxChars: 1500) { system, _ in
+            #expect(system.contains("Never invent names, numbers, dates, decisions or action items."))
+            #expect(system.contains("Write in Swedish"))
+            return "- ok"
+        }
+        let transcript = (0..<60).map { "[\($0):00] **Speaker:** " + String(repeating: "pratar ", count: 10) }.joined(separator: "\n\n")
+        _ = try await gen.notes(transcript: transcript, title: "T", language: .swedish, instructions: "I")
+        #expect(NotesPrompt.grounding(.automatic).contains("Swedish if the transcript is Swedish"))
+        #expect(NotesPrompt.defaultInstructions.contains("Inget nämndes"))
+        #expect(NotesPrompt.notMentioned(.swedish) == "Inget nämndes")
+    }
+
+    @Test func partsStaySmallForBigContexts() {
+        #expect(NotesGenerator.maxChars(contextTokens: 8192) == NotesGenerator.maxPartChars)
     }
 
     @Test func longTranscriptIsMapReduced() async throws {
@@ -243,6 +386,10 @@ import Testing
 }
 
 @Suite struct MarkdownTests {
+    @Test func doubledCheckboxes() {
+        #expect(MarkdownBlock.parse("*   [ ] [ ]  Skicka offerten") == [.checkbox(indent: 0, checked: false, text: "Skicka offerten")])
+    }
+
     @Test func parsesNotes() {
         let md = """
         ## Sammanfattning
