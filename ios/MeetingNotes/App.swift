@@ -45,7 +45,7 @@ struct MeetingListView: View {
                 }
             }
             .environment(\.editMode, $editMode)
-            .deleteDialog(for: editMode.isEditing ? [] : pendingDelete, onCancel: { pendingDelete = [] }, onDelete: delete)
+            .deleteDialog(for: pendingDelete, onCancel: { pendingDelete = [] }, onDelete: delete)
             .sensoryFeedback(.impact(weight: .light), trigger: deletedCount)
             .overlay {
                 if model.meetings.isEmpty {
@@ -73,7 +73,26 @@ struct MeetingListView: View {
                 }
             }
             .safeAreaInset(edge: .bottom) {
-                if editMode.isEditing { editBar } else { recordBar }
+                if !editMode.isEditing { recordBar }
+            }
+            .toolbar {
+                // Edit: the standard bottom toolbar of Mail, Notes and Files.
+                if editMode.isEditing {
+                    ToolbarItem(placement: .bottomBar) {
+                        let all = Set(model.filtered(query).map(\.id))
+                        Button(selection == all ? "Deselect All" : "Select All") {
+                            selection = selection == all ? [] : all
+                        }
+                    }
+                    ToolbarSpacer(.flexible, placement: .bottomBar)
+                    ToolbarItem(placement: .bottomBar) {
+                        Button("Delete", role: .destructive) {
+                            pendingDelete = model.meetings.filter { selection.contains($0.id) }
+                        }
+                        .tint(.red)
+                        .disabled(selection.isEmpty)
+                    }
+                }
             }
             .sheet(isPresented: $showSettings) { SettingsView().environment(model) }
             .sheet(isPresented: Binding(get: { !onboarded && !Benchmark.enabled }, set: { if !$0 { onboarded = true } })) {
@@ -88,21 +107,6 @@ struct MeetingListView: View {
                 Button("OK") { model.alert = nil }
             } message: { Text(model.alert ?? "") }
         }
-    }
-
-    /// In Edit: delete the selected meetings.
-    private var editBar: some View {
-        HStack {
-            Spacer()
-            Button(selection.isEmpty ? "Delete" : "Delete (\(selection.count))", role: .destructive) {
-                pendingDelete = model.meetings.filter { selection.contains($0.id) }
-            }
-            .disabled(selection.isEmpty)
-            .deleteDialog(for: editMode.isEditing ? pendingDelete : [], onCancel: { pendingDelete = [] }, onDelete: delete)
-        }
-        .padding(.horizontal)
-        .padding(.vertical, 12)
-        .background(.bar)
     }
 
     private func delete(_ meetings: [Meeting]) {
@@ -228,14 +232,14 @@ struct LevelMeter: View {
 
 
 extension View {
-    /// The confirmation before deleting meetings, as an action sheet like Apple's apps: "Delete "Title"?" for one
+    /// The confirmation before deleting meetings: "Delete "Title"?" for one
     /// meeting, "Delete 3 Meetings?" for several. Shown while `meetings` isn't empty.
     func deleteDialog(for meetings: [Meeting], onCancel: @escaping () -> Void, onDelete: @escaping ([Meeting]) -> Void) -> some View {
         let one = meetings.count == 1
         let title = one ? "Delete \u{201C}\(meetings[0].title)\u{201D}?" : "Delete \(meetings.count) Meetings?"
-        return confirmationDialog(title, isPresented: Binding(get: { !meetings.isEmpty }, set: { if !$0 { onCancel() } }),
-                                  titleVisibility: .visible) {
-            Button(one ? "Delete Meeting" : "Delete \(meetings.count) Meetings", role: .destructive) { onDelete(meetings) }
+        // A centered alert: on iOS 26 a confirmation dialog is a popover anchored to a view that may be moving.
+        return alert(title, isPresented: Binding(get: { !meetings.isEmpty }, set: { if !$0 { onCancel() } })) {
+            Button("Delete", role: .destructive) { onDelete(meetings) }
             Button("Cancel", role: .cancel) { onCancel() }
         } message: {
             Text(one ? "The transcript and notes will be deleted. This can't be undone."
