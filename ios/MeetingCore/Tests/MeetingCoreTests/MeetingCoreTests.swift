@@ -112,6 +112,18 @@ import Testing
         #expect(MeetingStore.audioFiles(a).map(\.lastPathComponent) == ["audio.caf", "audio-1.caf", "audio-2.caf", "audio-10.caf"])
     }
 
+    /// The id the app opens after recording (the new folder's path) must be the id the list has for it.
+    /// The temporary directory, like an iPhone's Documents folder, is under /var, a symlink to /private/var,
+    /// and listing a directory can spell its children with the resolved path.
+    @Test func newFolderIdMatchesListedId() throws {
+        let store = MeetingStore(root: try tempRoot())
+        let folder = try store.newFolder(title: "Meeting", date: Date())
+        MeetingStore.writeMeta(Meta(title: "Meeting", created: Date(), status: "transcribing"), to: folder)
+        let all = store.loadAll()
+        #expect(all.map(\.id) == [folder.path])
+        #expect(all.first?.status == "transcribing")
+    }
+
     @Test func renameUpdatesHeadings() throws {
         let root = try tempRoot()
         MeetingStore.writeMeta(Meta(title: "Old"), to: root)
@@ -191,9 +203,41 @@ import Testing
             _ = await calls.add(prompt)
             return "```markdown\n## Summary\nShort.\n```"
         }
-        let notes = try await gen.notes(transcript: "[0:00] **Speaker:** Hi", title: "T", language: .english, instructions: "I")
+        let transcript = "[0:00] **Speaker:** " + String(repeating: "hi ", count: 40)
+        let notes = try await gen.notes(transcript: transcript, title: "T", language: .english, instructions: "I")
         #expect(notes == "## Summary\nShort.")
         #expect(await calls.prompts.count == 1)
+    }
+
+    @Test func tooShortTranscriptSkipsTheModel() async throws {
+        let calls = Calls()
+        let gen = NotesGenerator(maxChars: 1000) { _, prompt in
+            _ = await calls.add(prompt)
+            return "invented"
+        }
+        let transcript = "[0:00] **Speaker:** Hej, ska vi börja?\n\n[0:05] **Speaker:** Ja, tack."
+        let notes = try await gen.notes(transcript: transcript, title: "T", language: .swedish, instructions: "I")
+        #expect(notes == NotesPrompt.tooLittle(.swedish))
+        #expect(try await gen.notes(transcript: "  ", title: "T", language: .english, instructions: "I") == NotesPrompt.tooLittle(.english))
+        #expect(await calls.prompts.isEmpty)
+        #expect(NotesPrompt.wordCount(transcript) == 6)
+    }
+
+    @Test func everyCallIsGrounded() async throws {
+        let gen = NotesGenerator(maxChars: 1500) { system, _ in
+            #expect(system.contains("Never invent names, numbers, dates, decisions or action items."))
+            #expect(system.contains("Write in Swedish"))
+            return "- ok"
+        }
+        let transcript = (0..<60).map { "[\($0):00] **Speaker:** " + String(repeating: "pratar ", count: 10) }.joined(separator: "\n\n")
+        _ = try await gen.notes(transcript: transcript, title: "T", language: .swedish, instructions: "I")
+        #expect(NotesPrompt.grounding(.automatic).contains("Swedish if the transcript is Swedish"))
+        #expect(NotesPrompt.defaultInstructions.contains("Inget nämndes"))
+        #expect(NotesPrompt.notMentioned(.swedish) == "Inget nämndes")
+    }
+
+    @Test func partsStaySmallForBigContexts() {
+        #expect(NotesGenerator.maxChars(contextTokens: 8192) == NotesGenerator.maxPartChars)
     }
 
     @Test func longTranscriptIsMapReduced() async throws {

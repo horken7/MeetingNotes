@@ -11,7 +11,7 @@ public enum NotesPrompt {
     ## Open questions
     ## Key points (grouped by topic)
 
-    Be concise and concrete. Only include what the transcript supports; leave out a section if it would be empty.
+    Keep it short and concrete. Use only what is said in the transcript: never invent names, numbers, dates, decisions or action items. Keep every heading; under a heading the transcript says nothing about, write "Not mentioned" in the meeting's language ("Inget nämndes" in Swedish).
     Use headings and bullet lists only, no tables. Never use en dashes or em dashes.
     """
 
@@ -174,11 +174,17 @@ public struct NotesGenerator: Sendable {
     /// How many transcript characters fit one call, for a context window of `contextTokens` tokens:
     /// leave room for the instructions and the answer, and assume about 2.5 characters per token
     /// (Swedish and Danish tokenize worse than English).
+    /// Capped at about 3,500 tokens of Swedish: a 1B model loses track of a longer part and fills the gaps
+    /// with invented content, so a long meeting is better summarized in more, smaller parts.
     public static func maxChars(contextTokens: Int) -> Int {
-        max(1500, (contextTokens - 1600) * 5 / 2)
+        min(maxPartChars, max(1500, (contextTokens - 1600) * 5 / 2))
     }
 
+    public static let maxPartChars = 12_000
+
     public func notes(transcript: String, title: String, language: MeetingLanguage, instructions: String) async throws -> String {
+        // Nothing to summarize: don't let the model make up a meeting.
+        if NotesPrompt.wordCount(transcript) < NotesPrompt.minimumWords { return NotesPrompt.tooLittle(language) }
         var budget = maxChars
         for _ in 0..<4 {
             do {
@@ -191,7 +197,7 @@ public struct NotesGenerator: Sendable {
     }
 
     func run(transcript: String, title: String, language: MeetingLanguage, instructions: String, budget: Int) async throws -> String {
-        let system = NotesPrompt.system(language: language, name: name)
+        let system = NotesPrompt.system(language: language, name: name) + "\n" + NotesPrompt.grounding(language)
         let text = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
         if text.count <= budget {
             progress?("Writing notes")
