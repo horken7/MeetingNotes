@@ -53,7 +53,7 @@ Get-ChildItem $app -Filter *.pdb | Remove-Item
 
 # whisper-cli.exe and its DLLs
 $zip = Join-Path $out "whisper.zip"
-Invoke-WebRequest "https://github.com/ggml-org/whisper.cpp/releases/download/$WhisperRelease/whisper-bin-x64.zip" -OutFile $zip
+Invoke-WebRequest "https://github.com/ggml-org/whisper.cpp/releases/download/$WhisperRelease/whisper-bin-x64.zip" -OutFile $zip -MaximumRetryCount 5 -RetryIntervalSec 15
 $hash = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant()
 if ($hash -ne $WhisperSha256) { throw "whisper-bin-x64.zip has hash $hash, expected $WhisperSha256" }
 $unpacked = Join-Path $out "whisper-unpacked"
@@ -63,7 +63,7 @@ if (-not $release) { throw "whisper-cli.exe not found in the whisper.cpp release
 $whisper = New-Item -ItemType Directory -Force (Join-Path $app "whisper")
 Copy-Item $release.FullName $whisper
 Get-ChildItem $release.DirectoryName -Filter *.dll | Where-Object { $_.Name -match '^(whisper|ggml.*)\.dll$' } | Copy-Item -Destination $whisper
-Invoke-WebRequest "https://raw.githubusercontent.com/ggml-org/whisper.cpp/$WhisperRelease/LICENSE" -OutFile (Join-Path $whisper "LICENSE.txt")
+Invoke-WebRequest "https://raw.githubusercontent.com/ggml-org/whisper.cpp/$WhisperRelease/LICENSE" -OutFile (Join-Path $whisper "LICENSE.txt") -MaximumRetryCount 5 -RetryIntervalSec 15
 Copy-Item (Join-Path $root "..\LICENSE") (Join-Path $app "LICENSE.txt")
 
 # The speech models, from the cache or downloaded (and verified) into it.
