@@ -42,3 +42,9 @@ test("webhook signature check accepts signed and rejects tampered payloads", () 
   assert.equal(stripe.webhooks.constructEvent(payload, header, secret).id, "evt_1");
   assert.throws(() => stripe.webhooks.constructEvent(payload + " ", header, secret));
 });
+
+test("promotion codes are allowed for single apps but not the bundle", () => {
+  assert.equal(checkoutParams("mac", "https://x", {}).allow_promotion_codes, true);
+  assert.equal(checkoutParams("android", "https://x", {}).allow_promotion_codes, true);
+  assert.equal(checkoutParams("bundle", "https://x", {}).allow_promotion_codes, false);
+});

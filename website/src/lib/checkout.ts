@@ -45,7 +45,8 @@ export function checkoutParams(
       metadata: { app: "meeting-notes", product: product.id },
     },
     customer_creation: "always",
-    allow_promotion_codes: true,
+    // Promotion codes (e.g. ICANHAZCHEAP, €19 off = €10 per app) apply to single apps only, not the bundle.
+    allow_promotion_codes: product.platforms.length === 1,
     // Stripe Tax: calculates VAT from the buyer's address. Needs Stripe Tax turned on in the Dashboard.
     automatic_tax: { enabled: automaticTax },
     billing_address_collection: automaticTax ? "required" : "auto",
