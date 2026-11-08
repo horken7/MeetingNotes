@@ -10,6 +10,12 @@ export function Footer({ dict }: { dict: Dictionary }) {
         <div className="flex flex-col gap-2">
           <Logo className="text-zinc-900 dark:text-white" />
           <span>© {new Date().getFullYear()} {site.name}</span>
+          <span>
+            {dict.footer.madeIn}{" "}
+            <a href="https://www.frinkle.se/" target="_blank" rel="noopener noreferrer" className="font-medium hover:text-zinc-900 dark:hover:text-white">
+              Frinkle.
+            </a>
+          </span>
         </div>
         <nav className="flex flex-wrap gap-x-6 gap-y-2">
           <Link href="/privacy" className="hover:text-zinc-900 dark:hover:text-white">{dict.footer.privacy}</Link>

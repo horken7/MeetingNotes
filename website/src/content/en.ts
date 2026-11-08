@@ -168,6 +168,7 @@ const en = {
     terms: "Terms",
     source: "Source code (MIT)",
     contact: "Contact",
+    madeIn: "Made in Sweden with ♡ by",
   },
 };
 
