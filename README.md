@@ -27,10 +27,7 @@ model with [Ollama](https://ollama.com).
   </picture>
 </p>
 <p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/images/prompt-dark.png">
-    <img src="docs/images/prompt.png" alt="The prompt shown when a call is detected" width="380">
-  </picture>
+  <img src="docs/images/prompt-dark.png" alt="The prompt shown when a call is detected" width="380">
 </p>
 
 **Windows:** a native Windows version is in [`windows/`](windows/README.md), with an installer (`MeetingNotes-Setup.exe`
