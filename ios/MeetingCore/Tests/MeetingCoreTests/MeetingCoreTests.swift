@@ -136,7 +136,8 @@ import Testing
     @Test func defaultInstructionsFollowTheMacApp() {
         let i = NotesPrompt.defaultInstructions
         #expect(i.hasPrefix("Write the notes in the main language spoken in the meeting"))
-        #expect(i.contains("## Action items"))
+        #expect(i.contains("Action items"))
+        #expect(!i.contains("(3 to 5 sentences)"))   // small models copy hints in headings into the notes
         #expect(!i.contains("Others"))
         #expect(NotesPrompt.effectiveInstructions("  ") == i)
         #expect(NotesPrompt.effectiveInstructions("Just bullets") == "Just bullets")
@@ -144,7 +145,11 @@ import Testing
 
     @Test func prompts() {
         let sys = NotesPrompt.system(language: .danish)
-        #expect(sys.contains("Write in Danish."))
+        #expect(sys.contains("so write in Danish."))
+        #expect(NotesPrompt.single(title: "T", instructions: "I", transcript: "X", language: .swedish)
+            .hasSuffix("X\n\nWrite the notes in Swedish, headings included."))
+        #expect(NotesPrompt.part(1, of: 2, language: .danish, transcript: "X").hasSuffix("Write the notes in Danish, headings included."))
+        #expect(!NotesPrompt.single(title: "T", instructions: "I", transcript: "X").contains("headings included"))
         #expect(sys.contains("\"Speaker\""))
         #expect(!sys.contains("notes are for"))
         #expect(NotesPrompt.system(language: .english, name: "Anna").contains("The notes are for Anna, who recorded the meeting."))
@@ -243,6 +248,10 @@ import Testing
 }
 
 @Suite struct MarkdownTests {
+    @Test func doubledCheckboxes() {
+        #expect(MarkdownBlock.parse("*   [ ] [ ]  Skicka offerten") == [.checkbox(indent: 0, checked: false, text: "Skicka offerten")])
+    }
+
     @Test func parsesNotes() {
         let md = """
         ## Sammanfattning

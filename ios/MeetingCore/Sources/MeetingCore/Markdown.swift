@@ -34,7 +34,11 @@ public enum MarkdownBlock: Equatable, Sendable {
             if line == "---" || line == "***" || line == "___" { flush(); blocks.append(.rule); continue }
             if let marker = line.first, "-*+".contains(marker), line.dropFirst().first == " " {
                 flush()
-                let item = line.dropFirst(2).trimmingCharacters(in: .whitespaces)
+                var item = line.dropFirst(2).trimmingCharacters(in: .whitespaces)
+                // Small models sometimes write "- [ ] [ ] item"; keep one checkbox.
+                while item.count > 4, item.lowercased().hasPrefix("[ ] [ ]") || item.lowercased().hasPrefix("[x] [ ]") {
+                    item = String(item.prefix(3)) + item.dropFirst(7)
+                }
                 let lower = item.lowercased()
                 if lower.hasPrefix("[ ] ") || lower == "[ ]" {
                     blocks.append(.checkbox(indent: indent, checked: false, text: String(item.dropFirst(3)).trimmingCharacters(in: .whitespaces)))

@@ -23,6 +23,8 @@ struct MeetingListView: View {
     @State private var query = ""
     @State private var showSettings = false
     @State private var path: [String] = []
+    @State private var pendingDelete: Meeting?
+    @AppStorage(Keys.onboarded) private var onboarded = false
 
     var body: some View {
         @Bindable var model = model
@@ -32,8 +34,8 @@ struct MeetingListView: View {
                     NavigationLink(value: m.id) { MeetingRow(meeting: m) }
                 }
                 .onDelete { idx in
-                    let list = model.filtered(query)
-                    for i in idx { model.delete(list[i]) }
+                    // Ask first; nothing is deleted until the user confirms.
+                    pendingDelete = idx.first.map { model.filtered(query)[$0] }
                 }
             }
             .overlay {
@@ -53,7 +55,19 @@ struct MeetingListView: View {
                 }
             }
             .safeAreaInset(edge: .bottom) { recordBar }
-            .sheet(isPresented: $showSettings) { SettingsView() }
+            .sheet(isPresented: $showSettings) { SettingsView().environment(model) }
+            .sheet(isPresented: Binding(get: { !onboarded && !Benchmark.enabled }, set: { if !$0 { onboarded = true } })) {
+                WelcomeView { onboarded = true }
+                    .environment(model)
+                    .interactiveDismissDisabled()
+            }
+            .confirmationDialog("Delete \"\(pendingDelete?.title ?? "")\"?",
+                                isPresented: Binding(get: { pendingDelete != nil }, set: { if !$0 { pendingDelete = nil } }),
+                                titleVisibility: .visible, presenting: pendingDelete) { m in
+                Button("Delete meeting", role: .destructive) { model.delete(m); pendingDelete = nil }
+            } message: { _ in
+                Text("The notes, transcript and audio are deleted from this iPhone.")
+            }
             .fullScreenCover(isPresented: Binding(get: { model.isRecording }, set: { _ in })) {
                 RecordingView { id in path = [id] }.environment(model)
             }

@@ -1,59 +1,77 @@
 import Foundation
-import FoundationModels
 import MeetingCore
 
-/// Writes the notes with Apple's on-device Foundation Models (Apple Intelligence). Its context window is
-/// small (about 4,000 tokens), so long transcripts are summarized in parts and then combined.
-enum NotesWriter {
-    static var model: SystemLanguageModel {
-        // Meeting transcripts are the user's own content being summarized, which is what this setting is for.
-        SystemLanguageModel(guardrails: .permissiveContentTransformations)
-    }
+/// Which model writes the notes.
+enum NotesEngine: String, CaseIterable, Identifiable {
+    /// The best Gemma model this iPhone has memory for.
+    case automatic = "auto"
+    case gemma4b = "gemma3-4b"
+    case gemma1b = "gemma3-1b"
+    /// Apple Intelligence, on iPhones that have it.
+    case apple
 
-    /// Why notes can't be written on this iPhone right now, or nil when they can.
-    static var unavailableReason: String? {
-        switch model.availability {
-        case .available:
-            return nil
-        case .unavailable(.deviceNotEligible):
-            return "This iPhone doesn't support Apple Intelligence, so notes can't be written on it. The transcript is saved."
-        case .unavailable(.appleIntelligenceNotEnabled):
-            return "Turn on Apple Intelligence in Settings > Apple Intelligence & Siri, then tap Write notes. The transcript is saved."
-        case .unavailable(.modelNotReady):
-            return "Apple Intelligence is still downloading its model. Keep the iPhone on Wi-Fi and charging, then tap Write notes. The transcript is saved."
-        case .unavailable:
-            return "Apple Intelligence isn't available right now. The transcript is saved."
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .automatic: return "Automatic"
+        case .gemma4b: return Catalog.gemma4b.label
+        case .gemma1b: return Catalog.gemma1b.label
+        case .apple: return "Apple Intelligence"
         }
     }
+
+    static var current: NotesEngine {
+        NotesEngine(rawValue: UserDefaults.standard.string(forKey: Keys.notesEngine) ?? "") ?? .automatic
+    }
+
+    /// The Gemma model this choice uses, nil for Apple Intelligence.
+    var gemma: ModelFile? {
+        switch self {
+        case .automatic: return Catalog.notesModel(physicalMemory: ProcessInfo.processInfo.physicalMemory, isReady: ModelStore.isReady)
+        case .gemma4b: return Catalog.gemma4b
+        case .gemma1b: return Catalog.gemma1b
+        case .apple: return nil
+        }
+    }
+}
+
+/// Writes the notes on the phone: with Gemma 3 through llama.cpp (any recent iPhone), or optionally with
+/// Apple Intelligence. Long transcripts are summarized in parts and then combined.
+enum NotesWriter {
+    /// Tokens of context for Gemma: about 20 minutes of speech per part, with room for the answer.
+    static let contextTokens = 8192
+    static let maxAnswerTokens = 1200
+
+    /// How much memory iOS lets this app use in all (its current use plus what's still available).
+    static var memoryLimit: Int64 { Int64(os_proc_available_memory()) + memoryFootprint() }
 
     static func write(transcript: String, title: String, language: MeetingLanguage, name: String, instructions: String,
-                      progress: @escaping @Sendable (String) -> Void) async throws -> String {
-        if let reason = unavailableReason { throw NotesError.failed(reason) }
-        let model = self.model
-        if language != .automatic, let id = language.localeIdentifier, !model.supportsLocale(Locale(identifier: id)) {
-            throw NotesError.failed("Apple Intelligence can't write notes in \(language.label) yet. The transcript is saved.")
+                      engine: NotesEngine, cancel: CancelFlag, report: @escaping Report) async throws -> String {
+        guard let gemma = engine.gemma else {
+            return try await AppleNotes.write(transcript: transcript, title: title, language: language, name: name,
+                                              instructions: instructions) { report($0, nil) }
         }
-        var generator = NotesGenerator(maxChars: NotesGenerator.maxChars(contextTokens: model.contextSize), generate: { system, prompt in
-            let session = LanguageModelSession(model: model, instructions: system)
-            do {
-                return try await session.respond(to: prompt, options: GenerationOptions(temperature: 0.3)).content
-            } catch let error as LanguageModelSession.GenerationError {
-                switch error {
-                case .exceededContextWindowSize:
-                    throw NotesError.contextExceeded
-                case .guardrailViolation, .refusal:
-                    throw NotesError.failed("Apple Intelligence declined to summarize this meeting. The transcript is saved.")
-                case .unsupportedLanguageOrLocale:
-                    throw NotesError.failed("Apple Intelligence doesn't support this meeting's language. The transcript is saved.")
-                case .assetsUnavailable:
-                    throw NotesError.failed("The Apple Intelligence model isn't ready yet. Try again later. The transcript is saved.")
-                default:
-                    throw NotesError.failed("Apple Intelligence couldn't write the notes: \(error.localizedDescription)")
-                }
-            }
-        }, progress: progress)
+        do {
+            return try await local(gemma, transcript: transcript, title: title, language: language, name: name,
+                                   instructions: instructions, cancel: cancel, report: report)
+        } catch EngineError.loadFailed where engine == .automatic && gemma == Catalog.gemma4b {
+            // Not enough memory right now for 4B: fall back to 1B rather than failing.
+            return try await local(Catalog.gemma1b, transcript: transcript, title: title, language: language, name: name,
+                                   instructions: instructions, cancel: cancel, report: report)
+        }
+    }
+
+    private static func local(_ model: ModelFile, transcript: String, title: String, language: MeetingLanguage, name: String,
+                              instructions: String, cancel: CancelFlag, report: @escaping Report) async throws -> String {
+        try await ModelStore.ensure(model, cancel: cancel) { report("Downloading \(model.label)", $0) }
+        report("Loading \(model.label)", nil)
+        let path = ModelStore.url(model).path
+        let engine = try await runBlocking { try LlamaEngine(modelPath: path, contextTokens: contextTokens) }
+        var generator = NotesGenerator(maxChars: NotesGenerator.maxChars(contextTokens: contextTokens), generate: { system, prompt in
+            try await runBlocking { try engine.generate(system: system, user: prompt, maxTokens: maxAnswerTokens, cancel: cancel) }
+        }, progress: { report($0, nil) })
         generator.name = name
-        return try await generator.notes(transcript: transcript, title: title,
-                                         language: language, instructions: instructions)
+        return try await generator.notes(transcript: transcript, title: title, language: language, instructions: instructions)
     }
 }

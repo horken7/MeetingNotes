@@ -12,6 +12,7 @@ struct MeetingDetailView: View {
     @State private var renaming = false
     @State private var newTitle = ""
     @State private var confirmDelete = false
+    @State private var audioGone = false
     @State private var exporting = false
     @State private var exportDocument = MarkdownFile(text: "")
     @State private var exportName = ""
@@ -32,7 +33,11 @@ struct MeetingDetailView: View {
             VStack(alignment: .leading, spacing: 16) {
                 header(m)
                 if let p = model.progress[m.id] {
-                    Banner(icon: nil, text: p + (p.hasPrefix("Downloading") ? "" : ". Keep the app open."), tint: .blue)
+                    VStack(alignment: .leading, spacing: 8) {
+                        Banner(icon: nil, text: p + ". Keep the app open.", tint: .blue)
+                        Button("Stop", role: .cancel) { model.cancelProcessing(m.id) }
+                            .buttonStyle(.bordered)
+                    }
                 } else if m.status == "failed", let error = m.meta.error {
                     VStack(alignment: .leading, spacing: 10) {
                         Banner(icon: "exclamationmark.triangle", text: error, tint: .orange)
@@ -71,6 +76,11 @@ struct MeetingDetailView: View {
             TextField("Title", text: $newTitle)
             Button("Cancel", role: .cancel) {}
             Button("Rename") { model.rename(m, to: newTitle) }
+        }
+        .alert("The audio was deleted", isPresented: $audioGone) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("The audio was deleted when the transcript was made, so the transcript can't be redone or made in another language. To keep the audio of future meetings, turn on Keep audio recordings in Settings.")
         }
         .confirmationDialog("Delete \"\(m.title)\"?", isPresented: $confirmDelete, titleVisibility: .visible) {
             Button("Delete meeting", role: .destructive) {
@@ -120,6 +130,9 @@ struct MeetingDetailView: View {
                     }
                 }
                 .disabled(busy)
+            } else if !transcript.isEmpty {
+                // Shown so it's clear why the transcript can't be redone.
+                Button("Redo transcript", systemImage: "waveform") { audioGone = true }
             }
             Divider()
             Button("Save notes to Files", systemImage: "folder") { export(m, "notes", notes) }

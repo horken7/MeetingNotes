@@ -9,12 +9,26 @@ on:
 
 jobs:
   build-and-test:
-    # The app targets iOS 26 (SpeechAnalyzer, Foundation Models), which needs Xcode 26.
+    # The app targets iOS 26, which needs Xcode 26.
     runs-on: macos-26
     steps:
       - uses: actions/checkout@v4
       - name: Xcode version
         run: xcodebuild -version
+      - name: Native libraries version
+        id: native
+        run: echo "key=meetingnative-$(shasum ios/scripts/build-native.sh | cut -c1-16)" >> "$GITHUB_OUTPUT"
+      - name: Cache the native libraries
+        uses: actions/cache@v4
+        with:
+          path: |
+            ios/Native/MeetingNative.xcframework
+            ios/Native/.version
+          key: ${{ steps.native.outputs.key }}
+      - name: Build whisper.cpp and llama.cpp (skipped when cached)
+        run: |
+          command -v cmake || brew install cmake
+          bash ios/scripts/build-native.sh
       - name: Unit tests (macOS)
         run: swift test --package-path ios/MeetingCore
       - name: Pick a simulator

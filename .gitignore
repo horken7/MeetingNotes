@@ -4,3 +4,8 @@ ios/MeetingCore/.build/
 ios/MeetingCore/.swiftpm/
 xcuserdata/
 *.xcodeproj/project.xcworkspace/
+ios/Native/MeetingNative.xcframework/
+ios/Native/.version
+ios/Models/*
+!ios/Models/README.md
+ios/.models-verified/
