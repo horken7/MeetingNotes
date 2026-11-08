@@ -26,7 +26,7 @@ const en = {
       { title: "Another subscription", body: "Most notetakers cost every month. {name} is a one-time purchase per platform." },
       { title: "A bot in your call", body: "No “Notetaker has joined” for your guests. It records your mic and the call audio right on your computer." },
       { title: "Waiting for processing", body: "Transcription runs locally with Whisper as soon as the call ends. No upload queue." },
-      { title: "Audio on someone’s servers", body: "Your recordings never leave your device. You choose where the notes are written." },
+      { title: "Audio on someone’s servers", body: "Your recordings never leave your device, and are deleted once transcribed. You choose where the notes are written." },
     ],
   },
   how: {
@@ -51,7 +51,7 @@ const en = {
       items: [
         "Detects Zoom, Teams and Google Meet calls automatically (and FaceTime on Mac)",
         "Records your mic and the call audio as two tracks, no bot and no virtual audio driver",
-        "Local transcription with Whisper",
+        "Local transcription with Whisper large-v3-turbo, built into the app",
         "Structured notes: summary, decisions, action items, open questions, key points",
         "Notes with Claude, Codex, or a fully local model through Ollama",
         "Names meetings from the call’s browser tab title",
@@ -67,10 +67,10 @@ const en = {
       items: [
         "Put the phone on the table and press record; it keeps going with the screen off",
         "Transcript and notes made fully on the phone, with on-device Whisper and Gemma models",
-        "Works offline: the internet is only used once, to download the models",
-        "Swedish, Danish, English and more, with notes in the meeting’s language",
+        "Works offline from the first meeting: the models are built in, and better ones are optional downloads",
+        "Swedish (with KB-Whisper for far fewer mistakes), Danish, English and more, with notes in the meeting’s language",
         "Search, rename and share notes and transcripts",
-        "Android available now (Android 10 or newer), iPhone coming to the App Store",
+        "Android available now (Android 10 or newer). iPhone coming to the App Store; until then you can build it from the source",
       ],
     },
   },
@@ -78,11 +78,11 @@ const en = {
     title: "Private by design",
     lead: "Here is exactly what goes where.",
     rows: [
-      { what: "Audio recordings", where: "Stay on your device. Always." },
+      { what: "Audio recordings", where: "Stay on your device, always, and are deleted as soon as the transcript is ready (unless you choose to keep them)." },
       { what: "Transcription", where: "On your device, with Whisper." },
       { what: "Notes with the local model", where: "Written on your computer with Ollama. Nothing leaves it." },
       { what: "Notes with Claude or Codex", where: "Only the text transcript is sent to Anthropic or OpenAI, using your own account, to write the notes." },
-      { what: "Notes on the phone", where: "Written on the phone. Nothing leaves it." },
+      { what: "Notes on the phone", where: "Written on the phone. Nothing leaves it unless you share it." },
       { what: "This website", where: "Only handles your payment, through Stripe. We never see your meetings." },
     ],
   },
@@ -97,10 +97,10 @@ const en = {
     iphone: {
       name: "iPhone",
       price: "Coming soon",
-      blurb: "Coming to the App Store. Apple only allows iPhone apps to be sold there.",
+      blurb: "Coming to the App Store, where Apple requires iPhone apps to be sold. Until then, build it yourself from the source with Xcode.",
       cta: "Coming to the App Store",
     },
-    vatNote: "Prices include VAT where it applies. Secure payment by Stripe.",
+    vatNote: "Prices include VAT. Secure payment by Stripe.",
     error: "Checkout could not start. Please try again, or email {support}.",
     openSource: "Prefer to build it yourself? The full source is on GitHub.",
   },
@@ -108,8 +108,8 @@ const en = {
     title: "Questions",
     items: [
       {
-        q: "Why does my Mac or Windows PC warn about an unidentified developer?",
-        a: "The installers are not yet signed with a paid Apple or Microsoft certificate, so the operating system shows a warning the first time. On a Mac: open the app once, then go to System Settings > Privacy & Security and click Open Anyway (or right-click the app and choose Open). On Windows: in the SmartScreen dialog click More info, then Run anyway. The app is open source, so you can read exactly what it does on GitHub.",
+        q: "Why does my Mac, PC or phone warn me when I install it?",
+        a: "The apps are not yet signed with a paid Apple or Microsoft certificate (the Mac app is not notarized) and the Android app is installed from outside Google Play, so the system shows a warning the first time. On a Mac: open the app once and click Done, then go to System Settings > Privacy & Security and click Open Anyway. On Windows: in the SmartScreen dialog click More info, then Run anyway. On Android: when asked, allow your browser or Files to install unknown apps, and if Play Protect warns, choose Install anyway. The apps are open source, so you can read exactly what they do on GitHub.",
       },
       {
         q: "Is it really a one-time payment?",
@@ -137,7 +137,7 @@ const en = {
       },
       {
         q: "Why is iPhone not for sale here?",
-        a: "Apple only lets iPhone apps be sold through the App Store. The iPhone app will be listed there when it is ready.",
+        a: "Apple only lets iPhone apps be sold through the App Store. The iPhone app will be listed there when it is ready. Until then it is open source: you can build it with Xcode and install it on your own iPhone for free.",
       },
       {
         q: "Can I get a refund?",
@@ -153,8 +153,8 @@ const en = {
     next: "Next steps",
     steps: [
       "Download and open the installer.",
-      "If your computer warns about an unidentified developer, see the FAQ: it is expected for now.",
-      "Follow the first-run setup. It downloads the speech model and asks for microphone access.",
+      "If your computer warns about the app, or Android asks to allow installing unknown apps, see the FAQ: it is expected for now.",
+      "Follow the first-run setup. It asks for microphone access and, on Mac and Windows, helps you choose how the notes are written. The speech models are already in the app.",
     ],
     help: "Stuck? Email {support} and we will help you set it up.",
     demo: "Demo mode: no Stripe keys are configured on this deployment, so no payment was taken.",

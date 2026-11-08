@@ -7,7 +7,7 @@ export default function Privacy() {
   return (
     <article className="prose-legal mx-auto max-w-3xl px-4 py-16 sm:px-6">
       <h1 className="text-4xl font-semibold tracking-tight">Privacy policy</h1>
-      <p className="mt-2 text-sm text-zinc-500">Last updated: 6 November 2026</p>
+      <p className="mt-2 text-sm text-zinc-500">Last updated: 8 November 2026</p>
 
       <h2>The short version</h2>
       <p>
@@ -45,13 +45,19 @@ export default function Privacy() {
 
       <h2>The apps</h2>
       <ul>
-        <li>Audio is recorded and stored only on your device, in a folder you choose.</li>
+        <li>
+          Audio is recorded and stored only on your device, and is deleted as soon as the transcript is ready unless you turn on
+          Keep audio recordings in Settings.
+        </li>
         <li>Transcription runs on your device with Whisper.</li>
         <li>
           On Mac and Windows, if you choose Claude or Codex to write notes, the text transcript (not the audio) is sent to Anthropic
           or OpenAI using your own account, under their terms. With the local model, nothing leaves your computer.
         </li>
-        <li>On the phone, transcripts and notes are made on the phone. The internet is used only to download the models.</li>
+        <li>
+          On the phone, transcripts and notes are made on the phone. The models are built into the app; the internet is used only
+          to download optional models, and transcripts or notes leave the phone only when you share them.
+        </li>
         <li>The optional MCP server is read-only and runs on your computer; what you look up is shared with the AI app you ask.</li>
         <li>The apps contain no analytics or telemetry.</li>
       </ul>
