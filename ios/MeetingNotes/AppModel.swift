@@ -185,7 +185,8 @@ final class AppModel {
                 }
                 let start = Date()
                 let notes = try await NotesWriter.write(transcript: transcript, title: title, language: lang, name: name,
-                                                        instructions: instructions, engine: engine, cancel: cancel, report: report)
+                                                        instructions: instructions, engine: engine, cancel: cancel, report: report,
+                                                        onFallback: { message in Task { @MainActor in self.alert = message } })
                 bench.notes(seconds: Date().timeIntervalSince(start), engine: engine.gemma?.id ?? engine.rawValue)
                 guard !notes.isEmpty else { throw EngineError.failed("The notes model returned nothing. The transcript is kept: tap Write notes.") }
                 try MeetingStore.writeNotes(notes, title: title, to: folder)
