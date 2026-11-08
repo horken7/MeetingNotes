@@ -26,7 +26,7 @@ export function checkoutParams(
           product_data: {
             name: `${site.name} for ${product.name}`,
             description: `One-time purchase: ready-to-install app (${fileList}), updates and setup help.`,
-            metadata: { product: product.id },
+            metadata: { app: "meeting-notes", product: product.id },
           },
         },
       };
@@ -36,10 +36,13 @@ export function checkoutParams(
     line_items: [lineItem],
     success_url: `${baseUrl}/success?session_id={CHECKOUT_SESSION_ID}`,
     cancel_url: `${baseUrl}/#pricing`,
-    metadata: { product: product.id, platforms: product.platforms.join(",") },
+    // "app" tags every Stripe object with the product, since the Stripe account (Frinkle AB) may sell other things too.
+    metadata: { app: "meeting-notes", product: product.id, platforms: product.platforms.join(",") },
     payment_intent_data: {
       description: `${site.name} for ${product.name}`,
-      metadata: { product: product.id },
+      // Card statements read "<account prefix>* MEETING NOTES".
+      statement_descriptor_suffix: "MEETING NOTES",
+      metadata: { app: "meeting-notes", product: product.id },
     },
     customer_creation: "always",
     allow_promotion_codes: true,
