@@ -122,7 +122,7 @@ export default function Home() {
             <figure className="mx-auto w-full max-w-md">
               <div className="overflow-hidden rounded-xl border border-zinc-200 shadow-xl shadow-zinc-900/10 dark:border-zinc-800">
                 <Screenshot
-                  light="/images/prompt.png"
+                  light="/images/prompt-dark.png"
                   dark="/images/prompt-dark.png"
                   alt={t(d.screenshots.promptAlt)}
                   width={680}
