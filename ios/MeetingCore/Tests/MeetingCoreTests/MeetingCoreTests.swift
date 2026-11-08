@@ -275,6 +275,11 @@ import Testing
         #expect(NotesTidy.tidy(raw, language: .swedish) == "## Sammanfattning\nEtt. Två. Tre. Fyra. Fem.\n\n## Beslut\n- A")
     }
 
+    @Test func emptySubheadingsAreRemoved() {
+        let raw = "## Viktiga punkter\n\n**Ett:**\n- A\n\n**Två:**\n\n**Tre:**"
+        #expect(NotesTidy.tidy(raw, language: .swedish) == "## Viktiga punkter\n\n**Ett:**\n- A")
+    }
+
     @Test func chatterIsRemoved() {
         let gen = NotesGenerator(maxChars: 1000) { _, _ in "" }
         let raw = "Okay, here are the notes based on the transcript.\n\n## Sammanfattning\nText.\n\n- punkt\n\nI have focused on the transcript."

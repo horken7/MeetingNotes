@@ -119,6 +119,19 @@ public enum NotesTidy {
             }
             out.append(line)
         }
-        return out.joined(separator: "\n").replacingOccurrences(of: "\n\n\n", with: "\n\n")
+        // Bold sub-headings ("**Topic:**") with nothing under them.
+        var result: [String] = []
+        for (i, line) in out.enumerated() {
+            let t = line.trimmingCharacters(in: .whitespaces)
+            if t.hasPrefix("**"), t.hasSuffix("**") || t.hasSuffix("**:") || t.hasSuffix(":**") {
+                let next = out[(i + 1)...].first { !$0.trimmingCharacters(in: .whitespaces).isEmpty }?
+                    .trimmingCharacters(in: .whitespaces) ?? ""
+                if !(next.hasPrefix("- ") || next.hasPrefix("* ")) { continue }
+            }
+            result.append(line)
+        }
+        var text = result.joined(separator: "\n")
+        while text.contains("\n\n\n") { text = text.replacingOccurrences(of: "\n\n\n", with: "\n\n") }
+        return text.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
