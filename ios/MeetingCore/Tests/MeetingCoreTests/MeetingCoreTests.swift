@@ -202,6 +202,95 @@ import Testing
         func add(_ p: String) -> Int { prompts.append(p); return prompts.count }
     }
 
+    @Test func theTranscriptReachesThePrompt() async throws {
+        let calls = Calls()
+        let gen = NotesGenerator(maxChars: 6000) { system, prompt in
+            _ = await calls.add(system + "\n---\n" + prompt)
+            return "## Sammanfattning\nOk"
+        }
+        let sentence = "Hej, jag heter Johan. Jag är 33 år och bor i Århus. Var bor du?"
+        let transcript = (0..<4).map { "[0:\(String(format: "%02d", $0 * 10))] **Speaker:** \(sentence)" }.joined(separator: "\n\n")
+        _ = try await gen.notes(transcript: transcript, title: "Möte", language: .swedish, instructions: NotesPrompt.defaultInstructions)
+        let sent = await calls.prompts
+        #expect(sent.count == 1)
+        #expect(sent[0].contains(sentence))
+        #expect(sent[0].contains("Swedish"))
+        // No example meeting the model could copy.
+        for word in ["marketing", "influencer", "Maria", "campaign"] { #expect(!sent[0].localizedCaseInsensitiveContains(word)) }
+    }
+
+    @Test func swedishNotesStartInSwedish() async throws {
+        let calls = Calls()
+        var gen = NotesGenerator(maxChars: 6000) { _, _ in "unused" }
+        gen.generatePrefixed = { _, prompt, prefix in
+            _ = await calls.add(prompt + "|PREFIX|" + prefix)
+            return "Johan berättade om sig själv."
+        }
+        let line = "[0:00] **Speaker:** " + String(repeating: "Hej jag heter Johan och bor i Århus. ", count: 5)
+        let notes = try await gen.notes(transcript: line, title: "Möte", language: .swedish, instructions: NotesPrompt.defaultInstructions)
+        #expect(notes == "## Sammanfattning\nJohan berättade om sig själv.")
+        let sent = await calls.prompts
+        #expect(sent[0].hasSuffix("|PREFIX|## Sammanfattning\n"))
+        #expect(sent[0].contains("Sammanfattning, Beslut, Att göra, Öppna frågor, Viktiga punkter"))
+        #expect(!sent[0].contains("Summary, Decisions"))
+        // Custom instructions: no prefix, nothing replaced.
+        #expect(NotesPrompt.answerPrefix(.swedish, instructions: "Bara punkter") == nil)
+        #expect(NotesPrompt.localized("Bara punkter", .swedish) == "Bara punkter")
+        #expect(NotesPrompt.answerPrefix(.automatic, instructions: NotesPrompt.defaultInstructions) == nil)
+    }
+
+    @Test func tidyNotes() {
+        let raw = """
+        ## Beslut
+        - [ ]  Identifiera Paleolitikum
+        - [ ]  Identifiera paleolitikum
+        - Undersöka A
+        - Undersöka B
+        - Undersöka C
+        - Undersöka D
+        - Undersöka E
+        - Undersöka F
+
+        ## Att göra (Checklista)
+        - Skicka offerten
+        - [x] Boka rum
+        """
+        #expect(NotesTidy.tidy(raw, language: .swedish) == """
+        ## Beslut
+        - Identifiera Paleolitikum
+        - Undersöka A
+        - Undersöka B
+        - Undersöka C
+        - Undersöka D
+        - Undersöka E
+
+        ## Att göra
+        - [ ] Skicka offerten
+        - [x] Boka rum
+        """)
+    }
+
+    @Test func tidySummary() {
+        let raw = "## Sammanfattning\nEtt. Två. Ett. Tre. Fyra. Fem. Sex.\n\n## Beslut\n- A"
+        #expect(NotesTidy.tidy(raw, language: .swedish) == "## Sammanfattning\nEtt. Två. Tre. Fyra. Fem.\n\n## Beslut\n- A")
+    }
+
+    @Test func chatterIsRemoved() {
+        let gen = NotesGenerator(maxChars: 1000) { _, _ in "" }
+        let raw = "Okay, here are the notes based on the transcript.\n\n## Sammanfattning\nText.\n\n- punkt\n\nI have focused on the transcript."
+        #expect(gen.clean(raw) == "## Sammanfattning\nText.\n\n- punkt")
+        #expect(gen.clean("## Beslut\n- Inget nämndes") == "## Beslut\n- Inget nämndes")
+    }
+
+    @Test func aFewWordsSkipTheModel() async throws {
+        let calls = Calls()
+        let gen = NotesGenerator(maxChars: 6000) { _, prompt in _ = await calls.add(prompt); return "invented" }
+        let notes = try await gen.notes(transcript: "[0:00] **Speaker:** Hej, jag heter Johan. Jag är 33 år och bor i Århus. Var bor du?",
+                                        title: "Möte", language: .swedish, instructions: NotesPrompt.defaultInstructions)
+        #expect(notes == NotesPrompt.tooLittle(.swedish))
+        #expect(await calls.prompts.isEmpty)
+    }
+
     @Test func shortTranscriptIsOneCall() async throws {
         let calls = Calls()
         let gen = NotesGenerator(maxChars: 1000) { _, prompt in

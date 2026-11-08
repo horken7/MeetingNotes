@@ -115,6 +115,32 @@ final class AppModel {
     /// Stops the processing of a meeting (download, transcript or notes).
     func cancelProcessing(_ id: String) { cancelFlags[id]?.cancel() }
     private var cancelFlags: [String: CancelFlag] = [:]
+    /// Meetings whose processing was paused because the app left the screen, to resume when it's back.
+    private var pausedInBackground: Set<String> = []
+
+    /// iOS doesn't let apps use the GPU in the background, and whisper.cpp/llama.cpp would stall there,
+    /// so processing pauses when the app leaves the screen (e.g. the phone locks) and resumes when it's back.
+    func appDidEnterBackground() {
+        for (id, flag) in cancelFlags {
+            pausedInBackground.insert(id)
+            flag.cancel()
+        }
+    }
+
+    func appDidBecomeActive() {
+        let ids = pausedInBackground
+        pausedInBackground = []
+        // Keep the screen on while recording or working (set again here: setting it during launch doesn't stick).
+        UIApplication.shared.isIdleTimerDisabled = isRecording || !progress.isEmpty || !ids.isEmpty
+        for id in ids {
+            let folder = URL(fileURLWithPath: id)
+            Task {
+                // Let the cancelled run finish cleaning up first.
+                while progress[id] != nil { try? await Task.sleep(for: .milliseconds(200)) }
+                process(folder, notesOnly: !MeetingStore.readBody(folder, MeetingStore.transcriptFile).isEmpty)
+            }
+        }
+    }
 
     /// Makes the transcript (unless `notesOnly`) and then the notes, all on the phone.
     func process(_ folder: URL, notesOnly: Bool = false, language: MeetingLanguage? = nil) {
@@ -201,7 +227,9 @@ final class AppModel {
 
     private func fail(_ folder: URL, _ error: Error) {
         let message: String
-        if case EngineError.cancelled = error {
+        if case EngineError.cancelled = error, pausedInBackground.contains(folder.path) {
+            message = "Paused while the app was in the background. It continues when you open the app."
+        } else if case EngineError.cancelled = error {
             message = "Stopped. Tap Try again to continue."
         } else if UIApplication.shared.applicationState != .active {
             message = "This stopped when the app left the screen (iOS only lets apps use the GPU while they're open). Keep the app open and tap Try again."

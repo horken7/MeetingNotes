@@ -52,3 +52,73 @@ public enum NotesSampling {
     /// Short notes fit easily; a longer answer is usually the model rambling or inventing.
     public static let maxAnswerTokens = 1000
 }
+
+/// Cleans up what a small model writes: repeated bullets, too many bullets, checkboxes outside the action
+/// items, and hints copied into headings ("## Viktiga punkter (grouped by topic)").
+public enum NotesTidy {
+    public static let maxBullets = 6
+
+    public static func tidy(_ notes: String, language: MeetingLanguage) -> String {
+        let actionHeadings = Set([MeetingLanguage.swedish, .danish, .english].map { NotesPrompt.headings($0)[2].lowercased() } + ["action items"])
+        var out: [String] = []
+        var seen = Set<String>()
+        var bullets = 0
+        var inActions = false
+        let summaryHeadings = Set([MeetingLanguage.swedish, .danish, .english].map { NotesPrompt.headings($0)[0].lowercased() })
+        var currentTitle = ""
+        var summarySentences = 0
+        for raw in notes.components(separatedBy: "\n") {
+            var line = raw
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.hasPrefix("#") {
+                // "## Att göra (Checklista)" -> "## Att göra"
+                if let open = line.firstIndex(of: "("), line.hasSuffix(")") {
+                    line = String(line[..<open]).trimmingCharacters(in: .whitespaces)
+                }
+                let title = line.drop(while: { $0 == "#" }).trimmingCharacters(in: .whitespaces).lowercased()
+                inActions = actionHeadings.contains(title)
+                currentTitle = title
+                seen = []
+                bullets = 0
+                out.append(line)
+                continue
+            }
+            let isBullet = trimmed.hasPrefix("- ") || trimmed.hasPrefix("* ")
+            if isBullet {
+                var item = String(trimmed.dropFirst(2)).trimmingCharacters(in: .whitespaces)
+                var box = ""
+                if item.hasPrefix("[ ]") || item.lowercased().hasPrefix("[x]") {
+                    box = String(item.prefix(3))
+                    item = String(item.dropFirst(3)).trimmingCharacters(in: .whitespaces)
+                }
+                let key = item.lowercased().filter { $0.isLetter || $0.isNumber }
+                guard !key.isEmpty, !seen.contains(key), bullets < maxBullets else { continue }
+                seen.insert(key)
+                bullets += 1
+                let indent = String(raw.prefix { $0 == " " })
+                out.append(indent + "- " + (inActions ? (box.isEmpty ? "[ ] " : box + " ") : "") + item)
+                continue
+            }
+            if !trimmed.isEmpty, summaryHeadings.contains(currentTitle) {
+                // The summary: no repeated sentences, at most 5.
+                var sentences: [String] = []
+                trimmed.enumerateSubstrings(in: trimmed.startIndex..., options: .bySentences) { sub, _, _, _ in
+                    if let s = sub?.trimmingCharacters(in: .whitespaces), !s.isEmpty { sentences.append(s) }
+                }
+                var kept: [String] = []
+                for sentence in sentences {
+                    let key = sentence.lowercased().filter { $0.isLetter || $0.isNumber }
+                    if summarySentences < 5, !key.isEmpty, !seen.contains(key) {
+                        seen.insert(key)
+                        kept.append(sentence)
+                        summarySentences += 1
+                    }
+                }
+                if !kept.isEmpty { out.append(kept.joined(separator: " ")) }
+                continue
+            }
+            out.append(line)
+        }
+        return out.joined(separator: "\n").replacingOccurrences(of: "\n\n\n", with: "\n\n")
+    }
+}

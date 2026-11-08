@@ -12,7 +12,8 @@ struct MeetingNotesApp: App {
                 .environment(model)
                 .onChange(of: scenePhase) { _, phase in
                     // Pick up meeting folders added or changed in the Files app.
-                    if phase == .active { model.reload() }
+                    if phase == .active { model.reload(); model.appDidBecomeActive() }
+                    if phase == .background { model.appDidEnterBackground() }
                 }
         }
     }

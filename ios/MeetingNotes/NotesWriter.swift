@@ -85,6 +85,9 @@ enum NotesWriter {
         var generator = NotesGenerator(maxChars: NotesGenerator.maxChars(contextTokens: contextTokens), generate: { system, prompt in
             try await runBlocking { try engine.generate(system: system, user: prompt, maxTokens: maxAnswerTokens, cancel: cancel) }
         }, progress: { report($0, nil) })
+        generator.generatePrefixed = { system, prompt, prefix in
+            try await runBlocking { try engine.generate(system: system, user: prompt, prefix: prefix, maxTokens: maxAnswerTokens, cancel: cancel) }
+        }
         generator.name = name
         return try await generator.notes(transcript: transcript, title: title, language: language, instructions: instructions)
     }

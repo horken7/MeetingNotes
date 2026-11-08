@@ -149,10 +149,14 @@ final class LlamaEngine: @unchecked Sendable {
     }
 
     /// One chat turn: the system and user messages in, the model's answer out.
-    func generate(system: String, user: String, maxTokens: Int, cancel: CancelFlag) throws -> String {
+    /// `prefix` is the start of the answer, written for the model, which continues from it.
+    func generate(system: String, user: String, prefix: String = "", maxTokens: Int, cancel: CancelFlag) throws -> String {
         llama_memory_clear(llama_get_memory(ctx), true)
-        let prompt = try chatPrompt(system: system, user: user)
+        let prompt = try chatPrompt(system: system, user: user) + prefix
         var tokens = tokenize(prompt)
+        if Benchmark.enabled {
+            NSLog("notes prompt: %d tokens, %d characters:\n%@", tokens.count, prompt.count, prompt)
+        }
         if tokens.count + maxTokens > contextTokens { throw NotesError.contextExceeded }
 
         // The prompt, in batches.

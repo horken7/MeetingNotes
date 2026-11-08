@@ -11,6 +11,41 @@ public enum NotesPrompt {
     Use headings and bullet lists only, no tables. Never use en dashes or em dashes.
     """
 
+    /// The default headings in the meeting's language: small models write in the language of the headings
+    /// they're given and copy English ones into Swedish notes.
+    public static func headings(_ language: MeetingLanguage) -> [String] {
+        switch language {
+        case .swedish: return ["Sammanfattning", "Beslut", "Att göra", "Öppna frågor", "Viktiga punkter"]
+        case .danish: return ["Resumé", "Beslutninger", "Opgaver", "Åbne spørgsmål", "Vigtige punkter"]
+        case .english, .automatic: return ["Summary", "Decisions", "Action items", "Open questions", "Key points"]
+        }
+    }
+
+    static let englishHeadingList = "Summary, Decisions, Action items, Open questions, Key points"
+
+    /// The default instructions with the headings in the meeting's language (custom instructions are left alone).
+    public static func localized(_ instructions: String, _ language: MeetingLanguage) -> String {
+        guard instructions == defaultInstructions, language != .automatic, language != .english else { return instructions }
+        let h = headings(language)
+        return instructions
+            .replacingOccurrences(of: englishHeadingList, with: h.joined(separator: ", "))
+            .replacingOccurrences(of: "Under Summary", with: "Under \(h[0])")
+            .replacingOccurrences(of: "Under Action items", with: "Under \(h[2])")
+            .replacingOccurrences(of: "Group the Key points", with: "Group the \(h[4])")
+    }
+
+    /// The start of the model's answer, written for it: the first heading in the meeting's language.
+    /// A small model continues in the language it has started in, which no instruction achieves as reliably.
+    public static func answerPrefix(_ language: MeetingLanguage, instructions: String) -> String? {
+        guard language != .automatic, instructions == defaultInstructions else { return nil }
+        return "## \(headings(language)[0])\n"
+    }
+
+    /// The same for notes on one part of a long meeting.
+    public static func partPrefix(_ language: MeetingLanguage) -> String? {
+        language == .automatic ? nil : "## \(headings(language)[1])\n"
+    }
+
     /// The user's instructions, or the default when they're empty.
     public static func effectiveInstructions(_ custom: String?) -> String {
         let c = (custom ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
@@ -52,7 +87,7 @@ public enum NotesPrompt {
     /// The "map" step: short notes for one part of a long transcript.
     public static func part(_ index: Int, of count: Int, language: MeetingLanguage, transcript: String) -> String {
         """
-        This is part \(index) of \(count) of a meeting transcript. Write short notes for this part only, in \(language.englishName), as Markdown bullet lists under these headings: Decisions, Action items, Open questions, Key points. Leave out a heading if it would be empty. Output only the notes.
+        This is part \(index) of \(count) of a meeting transcript. Write short notes for this part only, in \(language.englishName), as Markdown bullet lists under these headings: \(headings(language).dropFirst().joined(separator: ", ")). Leave out a heading if it would be empty. Output only the notes.
 
         Transcript part \(index) of \(count):
         \(transcript)
@@ -62,7 +97,7 @@ public enum NotesPrompt {
     /// Merges the notes of several parts into shorter notes, when they're still too long for the final step.
     public static func merge(language: MeetingLanguage, parts: [String]) -> String {
         """
-        Below are notes from consecutive parts of one meeting. Merge them into one set of short notes in \(language.englishName), as Markdown bullet lists under these headings: Decisions, Action items, Open questions, Key points. Remove duplicates. Output only the notes.
+        Below are notes from consecutive parts of one meeting. Merge them into one set of short notes in \(language.englishName), as Markdown bullet lists under these headings: \(headings(language).dropFirst().joined(separator: ", ")). Remove duplicates. Output only the notes.
 
         \(numbered(parts))
         """
@@ -161,10 +196,14 @@ public enum NotesError: Error, Equatable, LocalizedError {
 public struct NotesGenerator: Sendable {
     /// Calls the model with session instructions and a prompt, returning its answer.
     public typealias Generate = @Sendable (_ instructions: String, _ prompt: String) async throws -> String
+    /// Like `Generate`, with the start of the answer written for the model (`prefix`); returns what follows it.
+    public typealias GeneratePrefixed = @Sendable (_ instructions: String, _ prompt: String, _ prefix: String) async throws -> String
 
     public var maxChars: Int
     public var name: String = ""
     public var generate: Generate
+    /// When set (llama.cpp can continue a started answer), used instead of `generate`.
+    public var generatePrefixed: GeneratePrefixed?
     public var progress: (@Sendable (String) -> Void)?
 
     public init(maxChars: Int, generate: @escaping Generate, progress: (@Sendable (String) -> Void)? = nil) {
@@ -185,6 +224,12 @@ public struct NotesGenerator: Sendable {
     public static let maxPartChars = 12_000
 
     public func notes(transcript: String, title: String, language: MeetingLanguage, instructions: String) async throws -> String {
+        let raw = try await untidyNotes(transcript: transcript, title: title, language: language, instructions: instructions)
+        // Only the default format is tidied; custom instructions may ask for something else.
+        return instructions == NotesPrompt.defaultInstructions ? NotesTidy.tidy(raw, language: language) : raw
+    }
+
+    func untidyNotes(transcript: String, title: String, language: MeetingLanguage, instructions: String) async throws -> String {
         // Nothing to summarize: don't let the model make up a meeting.
         if NotesPrompt.wordCount(transcript) < NotesPrompt.minimumWords { return NotesPrompt.tooLittle(language) }
         var budget = maxChars
@@ -200,16 +245,19 @@ public struct NotesGenerator: Sendable {
 
     func run(transcript: String, title: String, language: MeetingLanguage, instructions: String, budget: Int) async throws -> String {
         let system = NotesPrompt.system(language: language, name: name) + "\n" + NotesPrompt.grounding(language)
+        let localized = NotesPrompt.localized(instructions, language)
         let text = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
         if text.count <= budget {
             progress?("Writing notes")
-            return clean(try await generate(system, NotesPrompt.single(title: title, instructions: instructions, transcript: text, language: language)))
+            return clean(try await call(system, NotesPrompt.single(title: title, instructions: localized, transcript: text, language: language),
+                                        prefix: NotesPrompt.answerPrefix(language, instructions: instructions)))
         }
         let chunks = Chunker.chunks(text, maxChars: budget)
         var parts: [String] = []
         for (i, chunk) in chunks.enumerated() {
             progress?("Summarizing part \(i + 1) of \(chunks.count)")
-            parts.append(clean(try await generate(system, NotesPrompt.part(i + 1, of: chunks.count, language: language, transcript: chunk))))
+            parts.append(clean(try await call(system, NotesPrompt.part(i + 1, of: chunks.count, language: language, transcript: chunk),
+                                              prefix: NotesPrompt.partPrefix(language))))
         }
         // Merge part notes in groups until they fit the final step.
         while parts.joined(separator: "\n\n").count > budget, parts.count > 1 {
@@ -222,7 +270,8 @@ public struct NotesGenerator: Sendable {
             }
         }
         progress?("Combining notes")
-        return clean(try await generate(system, NotesPrompt.combine(title: title, instructions: instructions, parts: parts, language: language)))
+        return clean(try await call(system, NotesPrompt.combine(title: title, instructions: localized, parts: parts, language: language),
+                                    prefix: NotesPrompt.answerPrefix(language, instructions: instructions)))
     }
 
     private func mergeGroups(_ groups: [[String]], system: String, language: MeetingLanguage) async throws -> [String] {
@@ -230,9 +279,16 @@ public struct NotesGenerator: Sendable {
         for g in groups {
             if g.count == 1 { merged.append(g[0]); continue }
             progress?("Merging notes")
-            merged.append(clean(try await generate(system, NotesPrompt.merge(language: language, parts: g))))
+            merged.append(clean(try await call(system, NotesPrompt.merge(language: language, parts: g), prefix: NotesPrompt.partPrefix(language))))
         }
         return merged
+    }
+
+    private func call(_ system: String, _ prompt: String, prefix: String?) async throws -> String {
+        if let prefix, let generatePrefixed {
+            return prefix + (try await generatePrefixed(system, prompt, prefix))
+        }
+        return try await generate(system, prompt)
     }
 
     /// Strips a ```markdown fence the model sometimes wraps its answer in.
@@ -242,6 +298,22 @@ public struct NotesGenerator: Sendable {
             if let nl = t.firstIndex(of: "\n") { t = String(t[t.index(after: nl)...]) }
             if t.hasSuffix("```") { t = String(t.dropLast(3)) }
         }
-        return t.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Small models wrap the notes in chatter: drop it before the first heading and after the last list.
+        var lines = t.components(separatedBy: "\n")
+        if let first = lines.firstIndex(where: { $0.hasPrefix("#") || $0.hasPrefix("**") }), first > 0,
+           lines[..<first].allSatisfy({ Self.isChatter($0) }) {
+            lines.removeFirst(first)
+        }
+        while let last = lines.last, last.trimmingCharacters(in: .whitespaces).isEmpty || Self.isChatter(last) {
+            lines.removeLast()
+        }
+        return lines.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    static func isChatter(_ line: String) -> Bool {
+        let l = line.trimmingCharacters(in: .whitespaces).lowercased()
+        if l.isEmpty { return true }
+        return ["okay", "ok,", "sure", "here are", "here is", "i have", "i've", "i hope", "let me know", "note:",
+                "här är", "jag har", "hoppas", "her er", "jeg har"].contains { l.hasPrefix($0) }
     }
 }
