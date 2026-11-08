@@ -66,8 +66,8 @@ struct MeetingDetailView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
-                if let url = shareFile(m, tab == .notes ? notes : transcript) {
-                    ShareLink(item: url) { Label("Share", systemImage: "square.and.arrow.up") }
+                if !transcript.isEmpty || !notes.isEmpty {
+                    shareMenu(m, notes: notes, transcript: transcript)
                 }
                 menu(m, notes: notes, transcript: transcript, busy: busy)
             }
@@ -150,6 +150,29 @@ struct MeetingDetailView: View {
             Label("More", systemImage: "ellipsis.circle")
         }
     }
+
+    /// "Share…": plain text for the system share sheet, so any app (for example the Claude app) can take it.
+    private func shareMenu(_ m: Meeting, notes: String, transcript: String) -> some View {
+        Menu {
+            if !transcript.isEmpty {
+                ShareLink(item: "\(Self.notesRequest)\n\n# \(m.title): transcript\n\n\(transcript)") {
+                    Label("Transcript with a request for notes", systemImage: "text.bubble")
+                }
+            }
+            if !notes.isEmpty {
+                ShareLink(item: "# \(m.title)\n\n\(notes)") { Label("Notes", systemImage: "doc.text") }
+            }
+            if let url = shareFile(m, tab == .notes ? notes : transcript) {
+                ShareLink(item: url) { Label("\(tab == .notes ? "Notes" : "Transcript") as a Markdown file", systemImage: "doc") }
+            }
+        } label: {
+            Label("Share…", systemImage: "square.and.arrow.up")
+        }
+        .accessibilityIdentifier("share")
+    }
+
+    /// Put before a shared transcript, so an AI app such as Claude knows what to do with it.
+    static let notesRequest = "Write meeting notes for this transcript: summary, decisions, action items with owners."
 
     private func export(_ m: Meeting, _ kind: String, _ body: String) {
         exportDocument = MarkdownFile(text: document(m, kind, body))
