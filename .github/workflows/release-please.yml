@@ -1,0 +1,62 @@
+name: Release
+
+# One version for the whole repository (version.txt, CHANGELOG.md), from the Conventional Commits on main.
+# On every push to main, release-please opens or updates a release pull request ("chore: release X.Y.Z").
+# Merging it tags vX.Y.Z and creates the GitHub Release. Tags and releases made with GITHUB_TOKEN do not trigger
+# other workflows, so the Mac, Windows and Android builds are called from here and upload to that release.
+# See CONTRIBUTING.md.
+
+on:
+  push:
+    branches: [main]
+
+permissions: {}
+
+concurrency:
+  group: release-please
+  cancel-in-progress: false
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write        # the release commit, tag and GitHub Release
+      pull-requests: write   # the release pull request
+      issues: write          # its labels
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+    steps:
+      - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
+        id: release
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+  mac:
+    needs: release-please
+    if: needs.release-please.outputs.release_created == 'true'
+    permissions:
+      contents: write
+    uses: ./.github/workflows/release-mac.yml
+    with:
+      tag: ${{ needs.release-please.outputs.tag_name }}
+
+  windows:
+    needs: release-please
+    if: needs.release-please.outputs.release_created == 'true'
+    permissions:
+      contents: write
+    uses: ./.github/workflows/windows.yml
+    with:
+      tag: ${{ needs.release-please.outputs.tag_name }}
+
+  android:
+    needs: release-please
+    if: needs.release-please.outputs.release_created == 'true'
+    permissions:
+      contents: write
+    uses: ./.github/workflows/android.yml
+    with:
+      tag: ${{ needs.release-please.outputs.tag_name }}
+    secrets: inherit   # the Android release signing key

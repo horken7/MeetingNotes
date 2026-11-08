@@ -7,7 +7,7 @@ import Foundation
 // Meeting Notes.app/Contents/MacOS/meetingnotes-mcp. Connect with:
 //   claude mcp add meeting-notes -- ~/.meetnotes/bin/meetingnotes-mcp
 
-let serverVersion = "1.0"
+let serverVersion = "1.0.1" // x-release-please-version (release-please keeps this equal to version.txt)
 let protocolVersions = ["2025-06-18", "2025-03-26", "2024-11-05"]
 let maxText = 100_000   // characters per get_notes / get_transcript call; use offset for the rest
 

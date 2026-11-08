@@ -28,7 +28,8 @@ android {
         // Google Play requires apps to target Android 16 (API 36) from August 2026.
         targetSdk = 36
         versionCode = (System.getenv("VERSION_CODE") ?: "1").toInt()
-        versionName = System.getenv("VERSION_NAME") ?: "0.1.0"
+        // CI sets these from the tag and the commit count; local builds use the repository's version.txt.
+        versionName = System.getenv("VERSION_NAME") ?: rootProject.file("../version.txt").readText().trim()
         ndk { abiFilters += listOf("arm64-v8a") }
     }
 

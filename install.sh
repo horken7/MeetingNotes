@@ -147,7 +147,7 @@ APP="$BUILD/$APP_NAME.app"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 mv "$BUILD/$EXEC" "$APP/Contents/MacOS/$EXEC"
 
-bash "$HERE/packaging/info-plist.sh" 1.0 1 > "$APP/Contents/Info.plist"
+bash "$HERE/packaging/info-plist.sh" "$(cat "$HERE/version.txt" 2>/dev/null || echo 1.0)" 1 > "$APP/Contents/Info.plist"
 
 # App icon (cosmetic, skipped if anything goes wrong)
 (

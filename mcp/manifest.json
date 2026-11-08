@@ -2,7 +2,7 @@
   "manifest_version": "0.3",
   "name": "meeting-notes",
   "display_name": "Meeting Notes",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Read-only access to the meetings recorded by the Meeting Notes app: list, search and read notes and transcripts.",
   "long_description": "Lets Claude look up your meetings from the Meeting Notes Mac app. It reads meta.json, notes.md and transcript.md in your meetings folder (the one set in the app's Settings), never audio files, and can't change or delete anything.",
   "author": { "name": "Meeting Notes", "url": "https://github.com/horken7/MeetingNotes" },

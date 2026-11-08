@@ -1,5 +1,9 @@
 name: Android
 
+# Builds the APK (and the Play bundle). On a v* tag the APK is attached to that GitHub Release. The release-please
+# workflow also calls it (workflow_call) with the tag it just created, since tags made with GITHUB_TOKEN do not
+# trigger workflows.
+
 on:
   push:
     branches: [main]
@@ -7,6 +11,12 @@ on:
     paths-ignore: ['src/**', 'tests/**', 'mcp/**', 'install.sh']
   pull_request:
     paths: ['android/**', '.github/workflows/android.yml']
+  workflow_call:
+    inputs:
+      tag:
+        description: 'The release tag (vX.Y.Z) to build and upload to'
+        required: true
+        type: string
 
 permissions:
   contents: write   # to attach the APK to a release
@@ -17,8 +27,14 @@ jobs:
     defaults:
       run:
         working-directory: android
+    env:
+      # The release tag: the workflow_call input, or the pushed v* tag; empty for other builds.
+      TAG: ${{ inputs.tag || (startsWith(github.ref, 'refs/tags/v') && github.ref_name) || '' }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+          fetch-depth: 0   # the version code is the commit count
 
       # The models pass through several build steps at 1.4 GB each; make room on the runner.
       - name: Free disk space
@@ -61,9 +77,12 @@ jobs:
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-          VERSION_CODE: ${{ github.run_number }}
         run: |
-          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then export VERSION_NAME="${GITHUB_REF_NAME#v}"; fi
+          # versionCode must only grow: the commit count does across workflows (a run number is per workflow, and
+          # the release-please workflow has its own). v1.0.0 had 19 (the run number then); main is past that.
+          VERSION_CODE="$(git rev-list --count HEAD)"
+          export VERSION_CODE
+          if [[ -n "$TAG" ]]; then export VERSION_NAME="${TAG#v}"; fi
           # The app bundle for Google Play (models in an install-time asset pack), and from it the universal APK.
           ./gradlew --no-daemon :app:universalApk
           mv app/build/outputs/bundle/release/app-release.aab MeetingNotes.aab
@@ -83,12 +102,13 @@ jobs:
           compression-level: 0   # the models are already compressed
 
       - name: Attach to release
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: env.TAG != ''
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         run: |
           # The Mac and Windows jobs attach their installers to the same release; whichever runs first creates it.
-          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 \
-            || gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --generate-notes \
+          gh release view "$TAG" >/dev/null 2>&1 \
+            || gh release create "$TAG" --title "Meeting Notes ${TAG#v}" --generate-notes \
             || true
-          gh release upload "$GITHUB_REF_NAME" MeetingNotes.apk --clobber
+          gh release upload "$TAG" MeetingNotes.apk --clobber
