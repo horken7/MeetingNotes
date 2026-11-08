@@ -281,9 +281,13 @@ final class AppModel {
         reload()
     }
 
-    func delete(_ m: Meeting) {
-        if recorder?.folder == m.folder { return }
-        try? FileManager.default.removeItem(at: m.folder)
+    func delete(_ m: Meeting) { delete([m]) }
+
+    /// Deletes meetings (never the one being recorded or processed).
+    func delete(_ meetings: [Meeting]) {
+        for m in meetings where recorder?.folder != m.folder && progress[m.id] == nil {
+            try? FileManager.default.removeItem(at: m.folder)
+        }
         reload()
     }
 
