@@ -3,7 +3,8 @@
     <LangVersion>latest</LangVersion>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <Version>1.0.0</Version>
+    <!-- The repository's version (kept by release-please); build.ps1 overrides it with -p:Version. -->
+    <Version>$([System.IO.File]::ReadAllText('$(MSBuildThisFileDirectory)../version.txt').Trim())</Version>
     <Company>Meeting Notes</Company>
     <Product>Meeting Notes</Product>
     <Copyright>MIT License</Copyright>

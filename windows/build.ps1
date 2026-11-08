@@ -2,7 +2,8 @@
 #   powershell -ExecutionPolicy Bypass -File windows\build.ps1 [-Version 1.2.3] [-SkipTests] [-ModelCache <folder>]
 # Output: windows\artifacts\MeetingNotes-Setup.exe, with the speech models inside (no download at first run).
 param(
-    [string]$Version = "1.0.0",
+    # Defaults to the repository's version.txt (kept by release-please); CI passes the tag's version.
+    [string]$Version = (Get-Content (Join-Path $PSScriptRoot "..\version.txt") -Raw).Trim(),
     [switch]$SkipTests,
     # Downloaded models are kept here between builds (CI caches this folder). Never committed.
     [string]$ModelCache = (Join-Path $PSScriptRoot ".models")
