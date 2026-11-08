@@ -73,7 +73,26 @@ struct MeetingListView: View {
                 }
             }
             .safeAreaInset(edge: .bottom) {
-                if editMode.isEditing { editBar } else { recordBar }
+                if !editMode.isEditing { recordBar }
+            }
+            .toolbar {
+                // Edit: the standard bottom toolbar of Mail, Notes and Files.
+                if editMode.isEditing {
+                    ToolbarItem(placement: .bottomBar) {
+                        let all = Set(model.filtered(query).map(\.id))
+                        Button(selection == all ? "Deselect All" : "Select All") {
+                            selection = selection == all ? [] : all
+                        }
+                    }
+                    ToolbarSpacer(.flexible, placement: .bottomBar)
+                    ToolbarItem(placement: .bottomBar) {
+                        Button("Delete", role: .destructive) {
+                            pendingDelete = model.meetings.filter { selection.contains($0.id) }
+                        }
+                        .tint(.red)
+                        .disabled(selection.isEmpty)
+                    }
+                }
             }
             .sheet(isPresented: $showSettings) { SettingsView().environment(model) }
             .sheet(isPresented: Binding(get: { !onboarded && !Benchmark.enabled }, set: { if !$0 { onboarded = true } })) {
@@ -88,20 +107,6 @@ struct MeetingListView: View {
                 Button("OK") { model.alert = nil }
             } message: { Text(model.alert ?? "") }
         }
-    }
-
-    /// In Edit: delete the selected meetings.
-    private var editBar: some View {
-        HStack {
-            Spacer()
-            Button(selection.isEmpty ? "Delete" : "Delete (\(selection.count))", role: .destructive) {
-                pendingDelete = model.meetings.filter { selection.contains($0.id) }
-            }
-            .disabled(selection.isEmpty)
-        }
-        .padding(.horizontal)
-        .padding(.vertical, 12)
-        .background(.bar)
     }
 
     private func delete(_ meetings: [Meeting]) {
