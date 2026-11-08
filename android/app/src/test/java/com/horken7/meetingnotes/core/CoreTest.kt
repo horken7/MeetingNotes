@@ -344,3 +344,15 @@ class CatalogTest {
         assertNull(LanguageVote.pick(emptyList()))
     }
 }
+
+class ShareTest {
+    @Test fun startsWithThePromptThenTheTranscript() {
+        val text = Share.transcriptForNotes("Planering", "# Planering: transcript\n\n[0:03] Välkomna.\n\n[1:05] Hej allihop.\n")
+        assertEquals("Write meeting notes for this transcript: summary, decisions, action items with owners.\n\n" +
+            "Meeting: Planering\n\n[0:03] Välkomna.\n\n[1:05] Hej allihop.\n", text)
+    }
+
+    @Test fun keepsATranscriptWithoutHeading() {
+        assertTrue(Share.transcriptForNotes("X", "[0:00] Hi.").endsWith("Meeting: X\n\n[0:00] Hi.\n"))
+    }
+}

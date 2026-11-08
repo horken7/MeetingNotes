@@ -5,6 +5,7 @@ import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -56,6 +57,7 @@ import com.horken7.meetingnotes.MeetingService
 import com.horken7.meetingnotes.Store
 import com.horken7.meetingnotes.Work
 import com.horken7.meetingnotes.core.Meta
+import com.horken7.meetingnotes.core.Share
 import com.horken7.meetingnotes.core.Transcript
 import java.io.File
 
@@ -75,6 +77,7 @@ fun DetailScreen(id: String, onBack: () -> Unit) {
     var menu by remember { mutableStateOf(false) }
     var renaming by remember { mutableStateOf(false) }
     var deleting by remember { mutableStateOf(false) }
+    var choosingShare by remember { mutableStateOf(false) }
     val isRecording = recording?.meetingId == id
     val busy = isRecording || id in queued
     val progress = processing?.takeIf { it.meetingId == id }
@@ -93,14 +96,22 @@ fun DetailScreen(id: String, onBack: () -> Unit) {
         pendingSave = text
         saver.launch("${meeting.title} - $name.md")
     }
+    fun shareForNotes() {
+        val text = Store.readText(meeting.folder, "transcript.md") ?: return
+        shareText(context, "${meeting.title}: transcript", Share.transcriptForNotes(meeting.title, text))
+    }
+    fun shareNotes() = shareText(context, meeting.title, Store.readText(meeting.folder, "notes.md") ?: "")
+    // Share…: the transcript with a request to write notes, so the user can pick the Claude app (or any other) and
+    // have their own assistant write the notes; with notes already written, they choose which to share.
+    fun share() = if (notes != null) choosingShare = true else shareForNotes()
 
     Scaffold(topBar = {
         TopAppBar(
             title = { Text(meeting.title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
             navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") } },
             actions = {
-                if (notes != null) IconButton(onClick = { shareText(context, meeting.title, Store.readText(meeting.folder, "notes.md") ?: "") }) {
-                    Icon(Icons.Default.Share, contentDescription = "Share notes")
+                if (transcript != null) IconButton(onClick = { share() }) {
+                    Icon(Icons.Default.Share, contentDescription = "Share")
                 }
                 IconButton(onClick = { menu = true }) { Icon(Icons.Default.MoreVert, contentDescription = "More") }
                 DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
@@ -109,8 +120,7 @@ fun DetailScreen(id: String, onBack: () -> Unit) {
                     MenuItem("Regenerate notes", !busy && transcript != null, close) { MeetingService.process(context, id, notesOnly = true) }
                     MenuItem("Redo transcript and notes", !busy && meeting.hasAudio, close) { MeetingService.process(context, id, notesOnly = false) }
                     HorizontalDivider()
-                    MenuItem("Share notes", notes != null, close) { shareText(context, meeting.title, Store.readText(meeting.folder, "notes.md") ?: "") }
-                    MenuItem("Share transcript", transcript != null, close) { shareText(context, "${meeting.title}: transcript", Store.readText(meeting.folder, "transcript.md") ?: "") }
+                    MenuItem("Share…", transcript != null, close) { share() }
                     MenuItem("Share files (notes, transcript, audio)", !isRecording, close) { shareFiles(context, meeting) }
                     MenuItem("Save notes to Files or Drive", notes != null, close) { save("notes", "notes.md") }
                     MenuItem("Save transcript to Files or Drive", transcript != null, close) { save("transcript", "transcript.md") }
@@ -178,6 +188,22 @@ fun DetailScreen(id: String, onBack: () -> Unit) {
             dismissButton = { TextButton(onClick = { renaming = false }) { Text("Cancel") } },
         )
     }
+    if (choosingShare) {
+        AlertDialog(
+            onDismissRequest = { choosingShare = false },
+            title = { Text("Share") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    ShareChoice("Transcript, for an AI app to write notes",
+                        "Starts with a request to write a summary, decisions and action items. Pick the Claude app, " +
+                            "or another assistant, to use your own subscription.") { choosingShare = false; shareForNotes() }
+                    ShareChoice("Notes", "The notes written on this phone.") { choosingShare = false; shareNotes() }
+                }
+            },
+            confirmButton = {},
+            dismissButton = { TextButton(onClick = { choosingShare = false }) { Text("Cancel") } },
+        )
+    }
     if (deleting) {
         ConfirmDelete(meeting.title, onConfirm = { deleting = false; Store.delete(meeting.folder); onBack() }, onDismiss = { deleting = false })
     }
@@ -187,6 +213,14 @@ fun DetailScreen(id: String, onBack: () -> Unit) {
 @Composable
 private fun MenuItem(label: String, enabled: Boolean = true, close: () -> Unit, action: () -> Unit) {
     DropdownMenuItem(text = { Text(label) }, enabled = enabled, onClick = { close(); action() })
+}
+
+@Composable
+private fun ShareChoice(title: String, detail: String, onClick: () -> Unit) {
+    Column(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 8.dp)) {
+        Text(title, style = MaterialTheme.typography.titleSmall)
+        Text(detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
 }
 
 @Composable
