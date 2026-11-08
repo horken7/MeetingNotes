@@ -12,7 +12,7 @@ export const site = {
   // Where buyers get help.
   supportEmail: "hello@frinkle.se",
   // Seller shown on the legal pages. Replace with your company name and address before selling.
-  legalEntity: "Meeting Notes (sole trader, Sweden)",
+  legalEntity: "Frinkle AB (Sweden)",
 } as const;
 
 export function siteUrl(): string {
