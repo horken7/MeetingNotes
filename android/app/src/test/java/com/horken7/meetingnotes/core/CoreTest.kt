@@ -348,8 +348,13 @@ class CatalogTest {
 class ShareTest {
     @Test fun startsWithThePromptThenTheTranscript() {
         val text = Share.transcriptForNotes("Planering", "# Planering: transcript\n\n[0:03] Välkomna.\n\n[1:05] Hej allihop.\n")
-        assertEquals("Write meeting notes for this transcript: summary, decisions, action items with owners.\n\n" +
+        assertEquals("Write meeting notes for this transcript.\n\n${Prompts.defaultInstructions}\n\n" +
             "Meeting: Planering\n\n[0:03] Välkomna.\n\n[1:05] Hej allihop.\n", text)
+    }
+
+    @Test fun usesTheCustomNotesInstructions() {
+        val text = Share.transcriptForNotes("X", "[0:00] Hi.", "Only list action items.")
+        assertTrue(text.startsWith("Write meeting notes for this transcript.\n\nOnly list action items.\n\nMeeting: X"))
     }
 
     @Test fun keepsATranscriptWithoutHeading() {

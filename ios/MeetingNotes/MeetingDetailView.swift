@@ -3,6 +3,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 struct MeetingDetailView: View {
+    @AppStorage(Keys.notesInstructions) private var customInstructions = ""
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
     let id: String
@@ -162,7 +163,7 @@ struct MeetingDetailView: View {
                 ShareLink(item: "# \(m.title): transcript\n\n\(transcript)") {
                     Label("Transcript", systemImage: "text.quote")
                 }
-                ShareLink(item: "\(Self.notesRequest)\n\n# \(m.title): transcript\n\n\(transcript)") {
+                ShareLink(item: "\(notesRequest)\n\n# \(m.title): transcript\n\n\(transcript)") {
                     Label("Transcript with a request for notes", systemImage: "text.bubble")
                 }
             }
@@ -178,8 +179,10 @@ struct MeetingDetailView: View {
         .accessibilityIdentifier("share")
     }
 
-    /// Put before a shared transcript, so an AI app such as Claude knows what to do with it.
-    static let notesRequest = "Write meeting notes for this transcript: summary, decisions, action items with owners."
+    /// Put before a shared transcript, so an AI app such as Claude writes the notes the way Settings > Notes instructions says.
+    private var notesRequest: String {
+        "Write meeting notes for this transcript.\n\n" + NotesPrompt.effectiveInstructions(customInstructions)
+    }
 
     private func export(_ m: Meeting, _ kind: String, _ body: String) {
         exportDocument = MarkdownFile(text: document(m, kind, body))
