@@ -54,6 +54,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import com.horken7.meetingnotes.Meeting
 import com.horken7.meetingnotes.MeetingService
+import com.horken7.meetingnotes.Settings
 import com.horken7.meetingnotes.Store
 import com.horken7.meetingnotes.Work
 import com.horken7.meetingnotes.core.Meta
@@ -98,7 +99,7 @@ fun DetailScreen(id: String, onBack: () -> Unit) {
     }
     fun shareForNotes() {
         val text = Store.readText(meeting.folder, "transcript.md") ?: return
-        shareText(context, "${meeting.title}: transcript", Share.transcriptForNotes(meeting.title, text))
+        shareText(context, "${meeting.title}: transcript", Share.transcriptForNotes(meeting.title, text, Settings(context).customInstructions))
     }
     fun shareTranscript() {
         val text = Store.readText(meeting.folder, "transcript.md") ?: return
