@@ -159,6 +159,9 @@ struct MeetingDetailView: View {
     private func shareMenu(_ m: Meeting, notes: String, transcript: String) -> some View {
         Menu {
             if !transcript.isEmpty {
+                ShareLink(item: "# \(m.title): transcript\n\n\(transcript)") {
+                    Label("Transcript", systemImage: "text.quote")
+                }
                 ShareLink(item: "\(Self.notesRequest)\n\n# \(m.title): transcript\n\n\(transcript)") {
                     Label("Transcript with a request for notes", systemImage: "text.bubble")
                 }

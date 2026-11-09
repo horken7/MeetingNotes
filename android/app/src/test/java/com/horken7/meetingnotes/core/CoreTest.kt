@@ -355,4 +355,10 @@ class ShareTest {
     @Test fun keepsATranscriptWithoutHeading() {
         assertTrue(Share.transcriptForNotes("X", "[0:00] Hi.").endsWith("Meeting: X\n\n[0:00] Hi.\n"))
     }
+
+    @Test fun sharedTranscriptHasNoRequest() {
+        val text = Share.transcript("Planering", "# Planering: transcript\n\n[0:03] Välkomna.\n")
+        assertEquals("# Planering: transcript\n\n[0:03] Välkomna.\n", text)
+        assertFalse(text.contains(Share.PROMPT))
+    }
 }
