@@ -100,10 +100,14 @@ fun DetailScreen(id: String, onBack: () -> Unit) {
         val text = Store.readText(meeting.folder, "transcript.md") ?: return
         shareText(context, "${meeting.title}: transcript", Share.transcriptForNotes(meeting.title, text))
     }
+    fun shareTranscript() {
+        val text = Store.readText(meeting.folder, "transcript.md") ?: return
+        shareText(context, "${meeting.title}: transcript", Share.transcript(meeting.title, text))
+    }
     fun shareNotes() = shareText(context, meeting.title, Store.readText(meeting.folder, "notes.md") ?: "")
-    // Share…: the transcript with a request to write notes, so the user can pick the Claude app (or any other) and
-    // have their own assistant write the notes; with notes already written, they choose which to share.
-    fun share() = if (notes != null) choosingShare = true else shareForNotes()
+    // Share…: the user picks the plain transcript, the transcript with a request to write notes (for the Claude app
+    // or another assistant), or the notes when they're written.
+    fun share() { choosingShare = true }
 
     Scaffold(topBar = {
         TopAppBar(
@@ -197,7 +201,10 @@ fun DetailScreen(id: String, onBack: () -> Unit) {
                     ShareChoice("Transcript, for an AI app to write notes",
                         "Starts with a request to write a summary, decisions and action items. Pick the Claude app, " +
                             "or another assistant, to use your own subscription.") { choosingShare = false; shareForNotes() }
-                    ShareChoice("Notes", "The notes written on this phone.") { choosingShare = false; shareNotes() }
+                    ShareChoice("Transcript", "Just what was said, with timestamps.") { choosingShare = false; shareTranscript() }
+                    if (notes != null) {
+                        ShareChoice("Notes", "The notes written on this phone.") { choosingShare = false; shareNotes() }
+                    }
                 }
             },
             confirmButton = {},
