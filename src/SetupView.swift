@@ -9,8 +9,8 @@ import AVFoundation
 @MainActor
 final class SetupModel: ObservableObject {
     static let shared = SetupModel()
-    static let completedKey = "setupCompleted"
-    static let stepKey = "setupStep"
+    nonisolated static let completedKey = "setupCompleted"
+    nonisolated static let stepKey = "setupStep"
     static let systemAudioKey = "systemAudioAsked"
 
     enum Step: Int, CaseIterable, Identifiable {
@@ -64,7 +64,7 @@ final class SetupModel: ObservableObject {
     private init() {
         let saved = Step(rawValue: UserDefaults.standard.integer(forKey: Self.stepKey)) ?? .welcome
         step = saved == .speech && Tools.modelBundled ? .notes : saved
-        provider = NotesProvider(rawValue: UserDefaults.standard.string(forKey: Keys.notesProvider) ?? "") ?? .claude
+        provider = NotesProvider.saved(UserDefaults.standard.string(forKey: Keys.notesProvider))
     }
 
     var appPath: String { Bundle.main.bundlePath }
@@ -325,6 +325,17 @@ final class SetupModel: ObservableObject {
         }
     }
 
+    /// For a copy of the app without the built-in model (built from source): download it to ~/.meetnotes.
+    func downloadBuiltInModel() {
+        perform("Downloading \(BuiltIn.modelLabel) (\(Self.bytes(BuiltIn.modelBytes)))…") { [weak self] in
+            try await FileDownloader().download(BuiltIn.modelURL, to: BuiltIn.downloadedModel, minimumSize: BuiltIn.modelBytes) { received, total in
+                Task { @MainActor in
+                    if let total, total > 0 { self?.busyProgress = Double(received) / Double(total) }
+                }
+            }
+        }
+    }
+
     // MARK: Permissions
 
     func refreshPermissions() {
@@ -384,7 +395,9 @@ final class SetupModel: ObservableObject {
     func launchCheck(open: @escaping () -> Void) {
         guard !completed else { return }
         Task {
-            if Tools.modelInstalled, Tools.whisper != nil, await ProviderSetup.check(provider) == .ready {
+            // Not for the built-in model: it is ready in every new install, which should still see setup once
+            // (permissions, moving the app out of the disk image).
+            if provider != .builtin, Tools.modelInstalled, Tools.whisper != nil, await ProviderSetup.check(provider) == .ready {
                 completed = true
                 return
             }
@@ -533,7 +546,7 @@ private struct WelcomePage: View {
             if setup.needsMove {
                 VStack(alignment: .leading, spacing: 8) {
                     StatusLine(ok: false, text: "Meeting Notes is running from the download, not from your Applications folder.")
-                    Text("Quit Meeting Notes, drag it from the download window into Applications, and open it from there. Otherwise some parts (like Claude Desktop) can't find it later.")
+                    Text("Quit Meeting Notes, drag it from the download window into Applications (or another folder on your Mac), and open it from there. Otherwise some parts (like Claude Desktop) can't find it later.")
                         .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                     HStack {
                         Button("Open Applications folder") { NSWorkspace.shared.open(URL(fileURLWithPath: "/Applications")) }
@@ -595,16 +608,17 @@ private struct NotesPage: View {
 
     private func blurb(_ p: NotesProvider) -> String {
         switch p {
+        case .builtin: return "Ready now: free and private, no account, nothing leaves your Mac. Comes with Meeting Notes and needs 8 GB of memory. Simpler notes than Claude's."
         case .claude: return "Needs a paid Claude plan (Pro or Max). The text of the conversation is sent to Anthropic to write the notes; audio stays on your Mac. Best notes."
         case .codex: return "Needs a ChatGPT plan that includes Codex (Plus or higher). The text is sent to OpenAI to write the notes; audio stays on your Mac."
-        case .ollama: return "Free and private: no account, nothing leaves your Mac. Needs a recent Mac with 16 GB of memory or more and an 8 GB download. Notes take longer and are simpler."
+        case .ollama: return "Free and private: runs a bigger model of your choice in Ollama. Needs a recent Mac with 16 GB of memory or more and an 8 GB download."
         }
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             PageHeader(title: "Choose how notes are written",
-                       text: "After a call, an AI writes the notes from the transcript. Pick one; you can change it later in Settings.")
+                       text: "After a call, an AI writes the notes from the transcript. The built-in model works right away; the others are optional. You can change it later in Settings.")
             ForEach(NotesProvider.allCases, id: \.self) { p in
                 Button { setup.provider = p } label: {
                     HStack(alignment: .top, spacing: 10) {
@@ -652,7 +666,17 @@ private struct NotesPage: View {
             case .checking:
                 StatusLine(ok: nil, text: "Checking \(name)…")
             case .ready:
-                StatusLine(ok: true, text: setup.provider == .ollama ? "Ollama and the local model \(Ollama.model) are ready." : "\(name) is installed and signed in.")
+                switch setup.provider {
+                case .builtin: StatusLine(ok: true, text: "\(BuiltIn.modelLabel) is ready. Nothing else to set up.")
+                case .ollama: StatusLine(ok: true, text: "Ollama and the local model \(Ollama.model) are ready.")
+                default: StatusLine(ok: true, text: "\(name) is installed and signed in.")
+                }
+            case .notInstalled where setup.provider == .builtin:
+                StatusLine(ok: false, text: "This copy of Meeting Notes doesn't include the built-in notes engine. Download Meeting Notes from the Releases page, or run `brew install llama.cpp` if you built it from source.")
+                actions
+            case .modelMissing where setup.provider == .builtin:
+                StatusLine(ok: false, text: "This copy of Meeting Notes doesn't include the built-in model. Download \(BuiltIn.modelLabel) (\(SetupModel.bytes(BuiltIn.modelBytes)), once).")
+                actions
             case .notInstalled:
                 StatusLine(ok: false, text: "\(name) isn't installed on this Mac yet.")
                 actions
@@ -675,6 +699,10 @@ private struct NotesPage: View {
     @ViewBuilder private var actions: some View {
         HStack {
             switch (setup.provider, setup.providerCheck) {
+            case (.builtin, .modelMissing):
+                Button("Download the model") { setup.downloadBuiltInModel() }
+            case (.builtin, _):
+                EmptyView()
             case (.claude, .notInstalled):
                 Button("Install Claude Code") { setup.installClaude() }
                 Button("Download page") { NSWorkspace.shared.open(ProviderSetup.claudeDownloadPage) }

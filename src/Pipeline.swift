@@ -2,17 +2,33 @@ import Foundation
 import NaturalLanguage
 
 enum NotesProvider: String, CaseIterable {
-    case claude, codex, ollama
+    case builtin, claude, codex, ollama
+
+    /// For new installs: the built-in model when this copy of the app has it, else Claude Code.
+    static var fallback: NotesProvider { BuiltIn.isAvailable ? .builtin : .claude }
+
+    /// The provider saved in Settings, or `fallback` when none (or an unknown one) is saved.
+    static func saved(_ raw: String?) -> NotesProvider { NotesProvider(rawValue: raw ?? "") ?? fallback }
+
+    /// What to save on launch so a provider chosen before the built-in model existed is kept: setups
+    /// from then left Claude Code as the unsaved default, which new installs no longer get. Pure, so it is tested.
+    static func migrated(saved: String?, setupStarted: Bool) -> NotesProvider? {
+        saved == nil && setupStarted ? .claude : nil
+    }
 
     var label: String {
         switch self {
+        case .builtin: return "Built-in (\(BuiltIn.modelLabel), on this Mac)"
         case .claude: return "Claude Code"
         case .codex: return "Codex (OpenAI)"
         case .ollama: return "Local model (Ollama)"
         }
     }
+    /// Whether the notes are written on this Mac, so the transcript isn't sent anywhere.
+    var isLocal: Bool { self == .builtin || self == .ollama }
     var loginHint: String {
         switch self {
+        case .builtin: return "No account and no setup: \(BuiltIn.modelLabel) comes with Meeting Notes and runs on your Mac. Notes for an hour-long meeting take one to a few minutes on Apple silicon, and longer on Intel Macs."
         case .claude: return "Sign in with Settings > Set up Meeting Notes…, or run `claude` in Terminal once and log in."
         case .codex: return "Sign in with Settings > Set up Meeting Notes…, or run `codex login` in Terminal."
         case .ollama: return "No account needed. Settings > Set up Meeting Notes… helps install Ollama and download \(Ollama.model)."
@@ -20,17 +36,18 @@ enum NotesProvider: String, CaseIterable {
     }
     var reloginHint: String {
         switch self {
+        case .builtin: return "Download Meeting Notes again if the built-in model is missing."
         case .claude: return "Sign in again with Settings > Set up Meeting Notes… (or run `claude auth login` in Terminal)."
         case .codex: return "Sign in again with Settings > Set up Meeting Notes… (or run `codex login` in Terminal)."
         case .ollama: return "Start Ollama with `brew services start ollama` or by opening the Ollama app."
         }
     }
-    /// The CLI that writes the notes; the local model is reached over HTTP instead.
+    /// The CLI that writes the notes; the local models are run differently (see BuiltIn and Ollama).
     var executable: String? {
         switch self {
         case .claude: return Tools.claude
         case .codex: return Tools.codex
-        case .ollama: return nil
+        case .builtin, .ollama: return nil
         }
     }
 }
@@ -108,7 +125,8 @@ enum Tools {
     }
 
     static var whisper: String? { find("whisper-cli") }
-    // Never bundled; the app's own MacOS folder holds only MeetingNotes, whisper-cli and the MCP server.
+    // Never bundled; the app's own MacOS folder holds only MeetingNotes, whisper-cli, llama-completion
+    // and the MCP server.
     static var claude: String? { find("claude", preferred: UserDefaults.standard.string(forKey: Keys.claudePath), inBundle: false) }
 
     static var codex: String? { find("codex", preferred: UserDefaults.standard.string(forKey: Keys.codexPath), inBundle: false) }
@@ -139,7 +157,45 @@ private final class DataBox: @unchecked Sendable {
     var data = Data()
 }
 
+/// The child processes that are running, so cancelling a task (Stop) or quitting the app stops them.
+final class ChildProcesses: @unchecked Sendable {
+    static let shared = ChildProcesses()
+    private let lock = NSLock()
+    private var running: [ObjectIdentifier: Process] = [:]
+
+    func add(_ p: Process) { lock.withLock { running[ObjectIdentifier(p)] = p } }
+    func remove(_ p: Process) { _ = lock.withLock { running.removeValue(forKey: ObjectIdentifier(p)) } }
+    func terminateAll() {
+        for p in lock.withLock({ Array(running.values) }) where p.isRunning { p.terminate() }
+    }
+}
+
+/// One run's process and whether its task was cancelled, set from the cancellation handler.
+private final class ProcessBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var process: Process?
+    private var cancelled = false
+
+    /// Keeps the process; false when the task was already cancelled (then it must not start).
+    func start(_ p: Process) -> Bool { lock.withLock { process = p; return !cancelled } }
+    var isCancelled: Bool { lock.withLock { cancelled } }
+    func cancel() {
+        let p: Process? = lock.withLock { cancelled = true; return process }
+        if let p, p.isRunning { p.terminate() }
+    }
+}
+
+/// Runs a command and returns its output. Cancelling the calling task terminates the command.
 func runProcess(_ exe: String, _ args: [String], input: String? = nil, cwd: URL? = nil) async -> RunResult {
+    let box = ProcessBox()
+    return await withTaskCancellationHandler {
+        await runProcess(exe, args, input: input, cwd: cwd, box: box)
+    } onCancel: {
+        box.cancel()
+    }
+}
+
+private func runProcess(_ exe: String, _ args: [String], input: String?, cwd: URL?, box: ProcessBox) async -> RunResult {
     await withCheckedContinuation { (cont: CheckedContinuation<RunResult, Never>) in
         DispatchQueue.global(qos: .userInitiated).async {
             let p = Process()
@@ -157,12 +213,19 @@ func runProcess(_ exe: String, _ args: [String], input: String? = nil, cwd: URL?
             p.standardError = errPipe
             p.standardInput = input == nil ? FileHandle.nullDevice : inPipe
 
+            guard box.start(p) else {
+                cont.resume(returning: RunResult(status: -1, out: "", err: "Stopped."))
+                return
+            }
             do {
                 try p.run()
             } catch {
                 cont.resume(returning: RunResult(status: -1, out: "", err: error.localizedDescription))
                 return
             }
+            ChildProcesses.shared.add(p)
+            defer { ChildProcesses.shared.remove(p) }
+            if box.isCancelled { p.terminate() }   // cancelled while it was starting
             let outBox = DataBox()
             let errBox = DataBox()
             let group = DispatchGroup()
@@ -240,12 +303,21 @@ enum Pipeline {
             Store.update(folder) { $0.status = "summarizing" }
             await onChange()
             let current = Store.readMeta(folder) ?? meta
-            let notes = try await summarize(transcript: transcript, meta: current, myName: settings.myName, folder: folder, provider: settings.notesProvider)
+            let notes = try await summarize(transcript: transcript, meta: current, myName: settings.myName, folder: folder,
+                                            provider: settings.notesProvider, language: current.lang ?? settings.language) { step in
+                // Steps of a long meeting with the built-in model ("Summarizing part 2 of 4").
+                Store.update(folder) { $0.progress = step }
+                Task { @MainActor in onChange() }
+            }
+            try Task.checkCancellation()
             try "# \(current.title)\n\n\(notes)\n".write(to: folder.appendingPathComponent("notes.md"), atomically: true, encoding: .utf8)
 
-            Store.update(folder) { $0.status = "done"; $0.error = nil }
+            Store.update(folder) { $0.status = "done"; $0.error = nil; $0.progress = nil }
         } catch {
-            Store.update(folder) { $0.status = "failed"; $0.error = error.localizedDescription }
+            let message = error is CancellationError || Task.isCancelled
+                ? "You stopped this before the notes were written. Press Retry to write them; the transcript is kept."
+                : error.localizedDescription
+            Store.update(folder) { $0.status = "failed"; $0.error = message; $0.progress = nil }
         }
         await onChange()
     }
@@ -383,7 +455,8 @@ enum Pipeline {
         """
     }
 
-    static func summarize(transcript: String, meta: Meta, myName: String, folder: URL, provider: NotesProvider) async throws -> String {
+    static func summarize(transcript: String, meta: Meta, myName: String, folder: URL, provider: NotesProvider,
+                          language: String? = nil, progress: @escaping @Sendable (String) -> Void = { _ in }) async throws -> String {
         let prompt = notesPrompt(meta: meta, myName: myName)
         func cli() throws -> String {
             guard let executable = provider.executable else {
@@ -407,7 +480,12 @@ enum Pipeline {
                 input: input, cwd: work)
         case .ollama:
             return try await Ollama.chat(prompt: prompt, transcript: transcript)
+        case .builtin:
+            // Its own prompts, made for a small model (see BuiltIn).
+            return try await BuiltIn.notes(transcript: transcript, meta: meta, myName: myName, languageSetting: language,
+                                           instructions: notesInstructions, progress: progress)
         }
+        try Task.checkCancellation()
         let out = r.out.trimmingCharacters(in: .whitespacesAndNewlines)
         guard r.status == 0, !out.isEmpty else {
             let detail = (r.err.isEmpty ? r.out : r.err).trimmingCharacters(in: .whitespacesAndNewlines)

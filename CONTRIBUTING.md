@@ -43,9 +43,10 @@ There is one version for the whole repository, in `version.txt`, with the histor
    changelog so far.
 2. Merging that pull request tags `vX.Y.Z` and creates the GitHub Release.
 3. The same workflow then builds the Mac DMG, the Windows installer and the Android APK for that tag and attaches them
-   to the release. The Windows installer (with the built-in notes model, over 4 GB) is over GitHub's 2 GiB asset
-   limit, so it's only kept as the `MeetingNotes-Setup` artifact of the Windows run (30 days): download it, host it
-   (for now on Google Drive) and put the link in the release notes.
+   to the release. The Mac DMG (about 4 GB) and the Windows installer (over 4 GB), both with the built-in notes model,
+   are over GitHub's 2 GiB asset limit, so they're only kept as the `MeetingNotes-dmg` and `MeetingNotes-Setup`
+   artifacts of their runs (30 days, with a notice on the Mac run): download them, host them (for now on Google Drive)
+   and put the links in the release notes. The DMG is attached to the release again whenever it fits.
 
 To pick a version yourself, put `Release-As: X.Y.Z` in the body of a commit on `main` (for a squash merge, in the
 merge commit's description). Pushing a `v*` tag by hand still builds and uploads the installers.

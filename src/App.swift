@@ -131,6 +131,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         return .terminateLater
     }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        // Don't leave the notes model (or a CLI) running, and using memory, after the app has gone.
+        ChildProcesses.shared.terminateAll()
+    }
 }
 
 struct MenuContent: View {

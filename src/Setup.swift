@@ -223,6 +223,10 @@ enum ProviderSetup {
 
     static func check(_ provider: NotesProvider) async -> ProviderCheck {
         switch provider {
+        case .builtin:
+            // Part of the downloadable app; a copy built from source may need the engine or the model.
+            if BuiltIn.executable == nil { return .notInstalled }
+            return BuiltIn.modelInstalled ? .ready : .modelMissing
         case .claude:
             guard let exe = Tools.claude else { return .notInstalled }
             let r = await runProcess(exe, ["auth", "status", "--json"])
@@ -323,7 +327,7 @@ enum AppLocation {
 
     static var bundledHelpers: [URL] {
         let contents = URL(fileURLWithPath: Bundle.main.bundlePath).appendingPathComponent("Contents")
-        return ["MacOS/whisper-cli", "MacOS/meetingnotes-mcp", "Resources/MeetingNotes.mcpb"]
+        return ["MacOS/whisper-cli", "MacOS/llama-completion", "MacOS/meetingnotes-mcp", "Resources/MeetingNotes.mcpb"]
             .map { contents.appendingPathComponent($0) }
             .filter { FileManager.default.fileExists(atPath: $0.path) }
     }

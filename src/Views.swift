@@ -424,7 +424,13 @@ struct MeetingDetail: View {
             StatusBox {
                 HStack(spacing: 10) {
                     ProgressView().controlSize(.small)
-                    Text("Writing the notes…")
+                    Text(meeting.meta.progress.map { "Writing the notes on your Mac: \($0.prefix(1).lowercased() + $0.dropFirst())…" }
+                         ?? "Writing the notes…")
+                    Spacer()
+                    if model.canStop(meeting) {
+                        Button("Stop") { model.stopNotes(meeting) }
+                            .help("Stop writing the notes. The transcript is kept; press Retry to write them later.")
+                    }
                 }
             }
         case "failed":
@@ -580,7 +586,7 @@ struct SettingsView: View {
     @AppStorage(Keys.promptStyle) private var promptStyle = "notification"
     @AppStorage(Keys.keepAudio) private var keepAudio = false
     @AppStorage(Keys.outputDir) private var outputDir = ""
-    @AppStorage(Keys.notesProvider) private var notesProvider = NotesProvider.claude.rawValue
+    @AppStorage(Keys.notesProvider) private var notesProvider = NotesProvider.fallback.rawValue
     @AppStorage(Keys.claudePath) private var claudePath = ""
     @AppStorage(Keys.codexPath) private var codexPath = ""
     @AppStorage(Keys.ollamaModel) private var ollamaModel = Ollama.defaultModel
@@ -588,7 +594,7 @@ struct SettingsView: View {
     @State private var ollamaStatus = Ollama.Status.checking
     @AppStorage(Keys.notesInstructions) private var instructions = Pipeline.defaultInstructions
 
-    private var provider: NotesProvider { NotesProvider(rawValue: notesProvider) ?? .claude }
+    private var provider: NotesProvider { NotesProvider.saved(notesProvider) }
 
     @State private var ignored: [String] = UserDefaults.standard.stringArray(forKey: Keys.ignoredApps) ?? []
     @State private var openAtLogin = SMAppService.mainApp.status == .enabled
@@ -612,6 +618,8 @@ struct SettingsView: View {
                         }
                     }
                     switch provider {
+                    case .builtin:
+                        EmptyView()
                     case .claude:
                         TextField("Claude executable (optional)", text: $claudePath)
                     case .codex:
@@ -621,7 +629,9 @@ struct SettingsView: View {
                         TextField("Ollama address", text: $ollamaURL)
                     }
                     Text(provider.loginHint).font(.caption).foregroundStyle(.secondary)
-                    Text(provider == .ollama
+                    Text(provider == .builtin
+                         ? "The notes are written on your Mac. Nothing leaves the Mac."
+                         : provider == .ollama
                          ? "The notes are written on your Mac by the local model. Nothing leaves the Mac (unless the address points to another computer)."
                          : "The text transcript is sent to the selected provider. Audio stays on your Mac.")
                         .font(.caption).foregroundStyle(.secondary)
@@ -692,6 +702,9 @@ struct SettingsView: View {
                     check("Speech model", Tools.modelInstalled)
                     if provider == .ollama {
                         ollamaCheck
+                    } else if provider == .builtin {
+                        check("Built-in notes engine (llama.cpp)", BuiltIn.executable != nil)
+                        check("Notes model (\(BuiltIn.modelLabel))", BuiltIn.modelInstalled)
                     } else {
                         check("\(provider.label) installed", provider.executable != nil)
                     }

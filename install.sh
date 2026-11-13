@@ -1,7 +1,8 @@
 #!/bin/bash
 # Meeting Notes installer
 # Builds and installs a Mac app that records calls, transcribes them on your Mac
-# with whisper.cpp and writes notes with Claude Code, Codex (OpenAI) or a local model (Ollama).
+# with whisper.cpp and writes notes with the built-in local model (Gemma 3 4B with llama.cpp),
+# Claude Code, Codex (OpenAI) or a local model in Ollama.
 # Run from the MeetingNotes folder:  bash install.sh
 # Optional: SIGN_IDENTITY="Apple Development: Your Name (TEAMID)" bash install.sh
 #   signs with a code-signing certificate from your keychain instead of ad hoc (see README).
@@ -19,20 +20,32 @@ MODEL="$DATA/ggml-large-v3-turbo.bin"
 OLLAMA_MODEL="gemma3:12b"   # keep in sync with Ollama.defaultModel in src/Pipeline.swift
 OLLAMA_URL="http://localhost:11434"
 VAD="$DATA/ggml-silero-v5.1.2.bin"
+# The built-in notes model; keep in sync with BuiltIn in src/BuiltIn.swift and packaging/fetch-models.sh.
+NOTES_MODEL="$DATA/gemma-3-4b-it-Q4_K_M.gguf"
+NOTES_MODEL_URL="https://huggingface.co/ggml-org/gemma-3-4b-it-GGUF/resolve/d0976223747697cb51e056d85c532013931fe52e/gemma-3-4b-it-Q4_K_M.gguf"
+NOTES_MODEL_SHA="882e8d2db44dc554fb0ea5077cb7e4bc49e7342a1f0da57901c0802ea21a0863"
 export PATH="/opt/homebrew/bin:/usr/local/bin:$HOME/.local/bin:$PATH"
 
 step() { printf '\n\033[1;32m==>\033[0m \033[1m%s\033[0m\n' "$*"; }
 note() { printf '    %s\n' "$*"; }
 fail() { printf '\n\033[1;31mError:\033[0m %s\n' "$*" >&2; exit 1; }
 
-# Preserve the selected provider on reinstall; Claude remains the default.
-PROVIDER="$(defaults read "$BUNDLE_ID" notesProvider 2>/dev/null || echo claude)"
+# Preserve the selected provider on reinstall. A first install uses the built-in model; an install from
+# before it existed (built, but no provider saved) keeps Claude, which was the default then.
+if SAVED="$(defaults read "$BUNDLE_ID" notesProvider 2>/dev/null)"; then
+  PROVIDER="$SAVED"
+elif [[ -d "$BUILD" ]]; then
+  PROVIDER=claude
+else
+  PROVIDER=builtin
+fi
 if [[ $# -gt 0 ]]; then
-  [[ $# -eq 2 && "$1" == "--provider" ]] || fail "Usage: bash install.sh [--provider claude|codex|ollama]"
+  [[ $# -eq 2 && "$1" == "--provider" ]] || fail "Usage: bash install.sh [--provider builtin|claude|codex|ollama]"
   PROVIDER="$2"
 fi
 [[ "$PROVIDER" == "local" ]] && PROVIDER="ollama"
-[[ "$PROVIDER" == "claude" || "$PROVIDER" == "codex" || "$PROVIDER" == "ollama" ]] || fail "Provider must be claude, codex or ollama."
+[[ "$PROVIDER" == "builtin" || "$PROVIDER" == "claude" || "$PROVIDER" == "codex" || "$PROVIDER" == "ollama" ]] \
+  || fail "Provider must be builtin, claude, codex or ollama."
 
 # ---------------------------------------------------------------------------
 step "Checking your Mac"
@@ -55,9 +68,14 @@ command -v whisper-cli >/dev/null || fail "whisper-cli was not found after insta
 
 # ---------------------------------------------------------------------------
 step "Notes provider: $PROVIDER"
-PROVIDER_EXE="$(command -v "$PROVIDER" || true)"
+PROVIDER_CMD="$PROVIDER"
+[[ "$PROVIDER" == "builtin" ]] && PROVIDER_CMD="llama-completion"
+PROVIDER_EXE="$(command -v "$PROVIDER_CMD" || true)"
 if [[ -z "$PROVIDER_EXE" ]]; then
-  if [[ "$PROVIDER" == "claude" ]]; then
+  if [[ "$PROVIDER" == "builtin" ]]; then
+    brew install llama.cpp
+    PROVIDER_EXE="$(command -v llama-completion || true)"
+  elif [[ "$PROVIDER" == "claude" ]]; then
     curl -fsSL https://claude.ai/install.sh | bash
     PROVIDER_EXE="$HOME/.local/bin/claude"
   elif [[ "$PROVIDER" == "ollama" ]]; then
@@ -71,7 +89,18 @@ fi
 [[ -x "$PROVIDER_EXE" ]] || fail "$PROVIDER could not be installed."
 "$PROVIDER_EXE" --version >/dev/null 2>&1 || fail "$PROVIDER is installed but cannot run. Repair its installation and retry."
 note "Using $PROVIDER_EXE"
-if [[ "$PROVIDER" == "claude" ]]; then
+if [[ "$PROVIDER" == "builtin" ]]; then
+  PROVIDER_OK=1
+  if [[ "$(shasum -a 256 "$NOTES_MODEL" 2>/dev/null | cut -d' ' -f1)" == "$NOTES_MODEL_SHA" ]]; then
+    note "Notes model already downloaded."
+  else
+    note "Downloading the notes model Gemma 3 4B (about 2.5 GB, once)..."
+    curl -fL --progress-bar -C - -o "$NOTES_MODEL.part" "$NOTES_MODEL_URL"
+    [[ "$(shasum -a 256 "$NOTES_MODEL.part" | cut -d' ' -f1)" == "$NOTES_MODEL_SHA" ]] \
+      || { rm -f "$NOTES_MODEL.part"; fail "The notes model download was damaged. Run install.sh again."; }
+    mv "$NOTES_MODEL.part" "$NOTES_MODEL"
+  fi
+elif [[ "$PROVIDER" == "claude" ]]; then
   note "Checking Claude login (one tiny request)..."
   if env -u ANTHROPIC_API_KEY "$PROVIDER_EXE" -p "Reply with just the word OK" </dev/null >/dev/null 2>&1; then
     PROVIDER_OK=1
@@ -129,12 +158,13 @@ fi
 
 # ---------------------------------------------------------------------------
 step "Building the app from $SRC (about a minute)"
+ROOT="$HERE"; source "$HERE/packaging/sources.sh"
 rm -rf "$BUILD"
 mkdir -p "$BUILD"
 ARCH="$(uname -m)"
 xcrun --sdk macosx swiftc -O -parse-as-library -swift-version 5 \
   -target "$ARCH-apple-macos15.0" \
-  -o "$BUILD/$EXEC" "$SRC"/*.swift \
+  -o "$BUILD/$EXEC" "${APP_SOURCES[@]}" \
   || fail "The build failed. See the compiler errors above."
 
 # MCP server so Claude and other MCP clients can read your meetings (see the README).
@@ -189,7 +219,7 @@ pkill -x "$EXEC" 2>/dev/null || true
 sleep 1
 rm -rf "$DEST/$APP_NAME.app"
 cp -R "$APP" "$DEST/"
-[[ "$PROVIDER" == "ollama" ]] || defaults write "$BUNDLE_ID" "${PROVIDER}Path" "$PROVIDER_EXE"
+[[ "$PROVIDER" == "ollama" || "$PROVIDER" == "builtin" ]] || defaults write "$BUNDLE_ID" "${PROVIDER}Path" "$PROVIDER_EXE"
 defaults write "$BUNDLE_ID" notesProvider "$PROVIDER"
 # Save meetings next to the app's source in a Meetings folder, unless another folder was chosen in Settings.
 if ! defaults read "$BUNDLE_ID" outputDir >/dev/null 2>&1; then
