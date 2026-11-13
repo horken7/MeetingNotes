@@ -58,7 +58,7 @@ quits or crashes). The meeting shows which step is running, and **Stop** cancels
 | `src/MeetingNotes.Mcp` | `meetingnotes-mcp.exe`, the read-only MCP server (stdio) for Claude Desktop and other AI apps |
 | `tests/MeetingNotes.Tests` | xUnit tests for the Core parts, including JSON-RPC round trips through the built MCP server, and one test that writes notes with the real `llama-server` and model when `MEETINGNOTES_LLAMA_SERVER` and `MEETINGNOTES_LLAMA_MODEL` point to them |
 | `installer/MeetingNotes.iss` | Inno Setup script for `MeetingNotes-Setup.exe` (and `-1.bin`) |
-| `build.ps1` | Tests, publishes (self-contained), bundles whisper.cpp, llama.cpp and the models (downloaded once into `windows\.models`, pinned by SHA-256, never committed), smoke-tests whisper and the built-in notes model with them and the MCP server, and builds the installer (needs Inno Setup 6.5.2 or later; it installs or upgrades it with Chocolatey) |
+| `build.ps1` | Tests, publishes (self-contained), bundles whisper.cpp, llama.cpp and the models (downloaded once into `windows\.models`, pinned by SHA-256, never committed), smoke-tests whisper and the built-in notes model with them and the MCP server, and builds the installer (needs Inno Setup 6.5.2 or later; it installs it with Chocolatey if missing) |
 
 ## How it maps to the Mac app
 

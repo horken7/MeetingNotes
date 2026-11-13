@@ -39,8 +39,6 @@ $Models = @(
 )
 # Inno Setup can put at most about 4.2 GB into one Setup.exe; above this the data goes into a .bin next to it.
 $MaxSingleExeBytes = 3900000000
-# Inno Setup 6.5.2 removed the 2 GB limit for a disk slice (DiskSliceSize=max).
-$MinInnoVersion = [version]"6.5.2"
 
 $root = $PSScriptRoot
 $out = Join-Path $root "artifacts"
@@ -181,37 +179,19 @@ $reply = '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' | & (Join-
 if ($reply -notmatch '"meeting-notes"') { throw "meetingnotes-mcp.exe didn't answer: $reply" }
 
 # Installer (Inno Setup)
-# ISCC.exe's version from its file information; $null when it has none we can read.
-function Get-FileVersion($path) {
-    $info = (Get-Item $path).VersionInfo
-    foreach ($text in @($info.ProductVersion, $info.FileVersion)) {
-        if ($text -match '(\d+\.\d+(\.\d+)?)') { return [version]$Matches[1] }
-    }
-    if ($info.FileMajorPart -gt 0) { return [version]::new($info.FileMajorPart, $info.FileMinorPart, $info.FileBuildPart) }
-    return $null
-}
-function Find-Iscc {
-    @(
-        "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
-        "$env:ProgramFiles\Inno Setup 6\ISCC.exe",
-        "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe"
-    ) | Where-Object {
-        if (-not (Test-Path $_)) { return $false }
-        $v = Get-FileVersion $_
-        Write-Host "Found $_ (version $v)"
-        # An unreadable version gets the benefit of the doubt: ISCC itself rejects DiskSliceSize=max when too old.
-        ($null -eq $v) -or ($v -ge $MinInnoVersion)
-    } |
-        Select-Object -First 1
-}
-$iscc = Find-Iscc
+# Inno Setup 6.5.2 or later is needed (DiskSliceSize=max); older ones stop with an error on that line. ISCC.exe's
+# file version info reads 0.0.0, so Chocolatey says which version it is.
+$iscc = @(
+    "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
+    "$env:ProgramFiles\Inno Setup 6\ISCC.exe",
+    "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe"
+) | Where-Object { Test-Path $_ } | Select-Object -First 1
 if (-not $iscc) {
-    Write-Host "Installing Inno Setup $MinInnoVersion or later"
-    Run choco @("upgrade", "innosetup", "-y", "--no-progress")
-    $iscc = Find-Iscc
-    if (-not $iscc) { throw "Inno Setup $MinInnoVersion or later is needed (DiskSliceSize=max)" }
+    Write-Host "Installing Inno Setup"
+    Run choco @("install", "innosetup", "-y", "--no-progress")
+    $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
 }
-Write-Host "Inno Setup: $iscc ($(Get-FileVersion $iscc))"
+if (Get-Command choco -ErrorAction SilentlyContinue) { choco list innosetup --exact --limit-output | Write-Host }
 $payload = (Get-ChildItem $app -Recurse -File | Measure-Object -Property Length -Sum).Sum
 $span = if ($payload -gt $MaxSingleExeBytes) { "1" } else { "0" }
 "Files to install: {0:N0} bytes ({1:N2} GB); disk spanning: {2}" -f $payload, ($payload / 1e9), $span | Write-Host
