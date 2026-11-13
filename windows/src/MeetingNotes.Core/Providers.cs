@@ -6,10 +6,12 @@ namespace MeetingNotes.Core;
 
 public static class ProviderInfo
 {
-    public static readonly NotesProvider[] All = { NotesProvider.Claude, NotesProvider.Codex, NotesProvider.Ollama };
+    public static readonly NotesProvider[] All = { NotesProvider.BuiltIn, NotesProvider.Claude, NotesProvider.Codex, NotesProvider.Ollama };
 
+    /// Unknown ids are Claude Code, the only provider older versions had by default.
     public static NotesProvider Parse(string? id) => id switch
     {
+        "builtin" => NotesProvider.BuiltIn,
         "codex" => NotesProvider.Codex,
         "ollama" => NotesProvider.Ollama,
         _ => NotesProvider.Claude,
@@ -17,6 +19,7 @@ public static class ProviderInfo
 
     public static string Id(NotesProvider p) => p switch
     {
+        NotesProvider.BuiltIn => "builtin",
         NotesProvider.Codex => "codex",
         NotesProvider.Ollama => "ollama",
         _ => "claude",
@@ -24,6 +27,7 @@ public static class ProviderInfo
 
     public static string Label(NotesProvider p) => p switch
     {
+        NotesProvider.BuiltIn => "Built-in (Gemma 3 4B, on this PC)",
         NotesProvider.Codex => "Codex (OpenAI)",
         NotesProvider.Ollama => "Local model (Ollama)",
         _ => "Claude Code",
@@ -31,6 +35,7 @@ public static class ProviderInfo
 
     public static string LoginHint(NotesProvider p) => p switch
     {
+        NotesProvider.BuiltIn => "No account and nothing to set up: the model comes with Meeting Notes and runs on this PC.",
         NotesProvider.Codex => "Sign in once with the Sign in button under Settings > Setup (it runs `codex login`).",
         NotesProvider.Ollama => $"No account needed. Install Ollama from ollama.com, then download the model ({Ollama.DefaultModel} by default) under Settings > Setup.",
         _ => "Sign in once with the Sign in button under Settings > Setup (it runs `claude auth login`).",
@@ -38,6 +43,7 @@ public static class ProviderInfo
 
     public static string ReloginHint(NotesProvider p) => p switch
     {
+        NotesProvider.BuiltIn => "Reinstall Meeting Notes if the built-in model is missing.",
         NotesProvider.Codex => "Open Settings > Setup and press Sign in (or run `codex login` in a terminal).",
         NotesProvider.Ollama => "Start Ollama from the Start menu.",
         _ => "Open Settings > Setup and press Sign in (or run `claude auth login` in a terminal).",

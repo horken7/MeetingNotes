@@ -1,8 +1,12 @@
 name: Windows
 
-# Builds and tests the Windows app (windows/) and makes MeetingNotes-Setup.exe. On a v* tag the installer is
-# uploaded to that GitHub Release, next to the Mac .dmg from the Mac release job. The release-please workflow also
-# calls it (workflow_call) with the tag it just created, since tags made with GITHUB_TOKEN do not trigger workflows.
+# Builds and tests the Windows app (windows/) and makes the installer. With the speech and notes models inside it is
+# over 4 GB, so it comes as MeetingNotes-Setup.exe plus MeetingNotes-Setup-1.bin (see windows/installer/MeetingNotes.iss).
+# Every build keeps it as a workflow artifact for 30 days (one zip download with both files). On a v* tag it is also
+# uploaded to that GitHub Release, next to the Mac .dmg from the Mac release job, but only if every file is under
+# GitHub's 2 GiB release-asset limit; otherwise the job says so and the files are hosted elsewhere by hand.
+# The release-please workflow also calls it (workflow_call) with the tag it just created, since tags made with
+# GITHUB_TOKEN do not trigger workflows.
 
 on:
   push:
@@ -42,20 +46,25 @@ jobs:
           $v = (Get-Content version.txt -Raw).Trim()
           if ($env:TAG) { $v = $env:TAG.Substring(1) }
           "VERSION=$v" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
-      - name: Speech models cache
+      - name: Models cache
         uses: actions/cache@v4
         with:
           path: windows/.models
           # Bump when the pinned models in windows/build.ps1 change.
-          key: whisper-models-large-v3-turbo-5359861-silero-v5.1.2
+          key: models-whisper-large-v3-turbo-5359861-silero-v5.1.2-gemma-3-4b-it-q4_k_m-d097622
       - name: Build, test and make the installer
         shell: pwsh
         run: ./windows/build.ps1 -Version $env:VERSION
       - uses: actions/upload-artifact@v4
         with:
           name: MeetingNotes-Setup
-          path: windows/artifacts/MeetingNotes-Setup.exe
+          path: |
+            windows/artifacts/MeetingNotes-Setup.exe
+            windows/artifacts/MeetingNotes-Setup-*.bin
           if-no-files-found: error
+          retention-days: 30
+          # The models are already compressed; zipping them again only takes time.
+          compression-level: 0
 
   release:
     needs: build
@@ -72,11 +81,27 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
+          # GitHub release assets must be under 2 GiB each. The installer is only useful complete (the .exe needs its
+          # .bin next to it), so upload all of its files or none.
+          limit=2147483648
+          too_big=""
+          for f in dist/*; do
+            size=$(stat -c %s "$f")
+            echo "$(basename "$f"): $size bytes"
+            if [ "$size" -ge "$limit" ]; then too_big="$too_big $(basename "$f") ($size bytes)"; fi
+          done
+          if [ -n "$too_big" ]; then
+            msg="Not uploaded to the $TAG release: over GitHub's 2 GiB asset limit:$too_big. Download the installer from the MeetingNotes-Setup artifact of $RUN_URL (kept 30 days) and host it elsewhere."
+            echo "::notice title=Windows installer not uploaded::$msg"
+            echo "$msg" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
           # The Mac job may create the release at the same moment: create it only if missing,
           # and accept losing that race.
           if ! gh release view "$TAG" >/dev/null 2>&1; then
             gh release create "$TAG" --title "Meeting Notes ${TAG#v}" --generate-notes \
               || gh release view "$TAG" >/dev/null
           fi
-          gh release upload "$TAG" dist/MeetingNotes-Setup.exe --clobber
+          gh release upload "$TAG" dist/* --clobber

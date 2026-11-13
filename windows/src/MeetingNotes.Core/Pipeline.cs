@@ -16,7 +16,10 @@ public sealed class Pipeline
         this.runner = runner ?? ProcessRunner.Shared;
     }
 
-    public async Task RunAsync(string folder, AppSettings settings, bool notesOnly = false, Action? onChange = null)
+    /// `progress` gets short status texts while the notes are written (the built-in model reports its steps);
+    /// `cancel` stops the run, which then fails with a message to press Retry.
+    public async Task RunAsync(string folder, AppSettings settings, bool notesOnly = false, Action? onChange = null,
+                               IProgress<string>? progress = null, CancellationToken cancel = default)
     {
         var meta = Store.ReadMeta(folder) ?? new Meta(Path.GetFileName(folder));
         var transcriptPath = Path.Combine(folder, "transcript.md");
@@ -41,7 +44,7 @@ public sealed class Pipeline
                 foreach (var track in tracks)
                 {
                     var offset = meta.Offsets != null && meta.Offsets.TryGetValue(track, out var o) ? o : 0;
-                    var segments = await TranscribeAsync(folder, track, offset, lang);
+                    var segments = await TranscribeAsync(folder, track, offset, lang, cancel);
                     if (Transcript.Speaker(track) == "me") me.AddRange(segments); else others.AddRange(segments);
                 }
                 if (me.Count == 0 && others.Count == 0)
@@ -57,10 +60,17 @@ public sealed class Pipeline
             Store.Update(folder, m => m.Status = "summarizing");
             onChange?.Invoke();
             var current = Store.ReadMeta(folder) ?? meta;
-            var notes = await SummarizeAsync(transcript, current, settings, folder);
+            var notes = await SummarizeAsync(transcript, current, settings, folder, progress, cancel);
             await File.WriteAllTextAsync(Path.Combine(folder, "notes.md"), $"# {current.Title}\n\n{notes}\n");
 
             Store.Update(folder, m => { m.Status = "done"; m.Error = null; });
+        }
+        catch (OperationCanceledException) when (cancel.IsCancellationRequested)
+        {
+            var message = File.Exists(transcriptPath)
+                ? "Stopped. Press Retry to write the notes; the transcript is kept."
+                : "Stopped. Press Retry to transcribe the meeting.";
+            Store.Update(folder, m => { m.Status = "failed"; m.Error = message; });
         }
         catch (Exception e)
         {
@@ -71,7 +81,7 @@ public sealed class Pipeline
         onChange?.Invoke();
     }
 
-    async Task<List<(double, string)>> TranscribeAsync(string folder, string track, double offset, string lang)
+    async Task<List<(double, string)>> TranscribeAsync(string folder, string track, double offset, string lang, CancellationToken cancel)
     {
         var capture = Path.Combine(folder, track + Transcript.CaptureExtension);
         var wav = Path.Combine(folder, track + ".wav");
@@ -105,12 +115,12 @@ public sealed class Pipeline
         if (File.Exists(VadModelPath))
         {
             // Voice activity detection skips silence, which stops whisper inventing phrases.
-            r = await runner.RunAsync(WhisperPath, args.Concat(new[] { "--vad", "-vm", ShortPath(VadModelPath) }).ToList(), cwd: folder);
-            if (r.Status != 0) r = await runner.RunAsync(WhisperPath, args, cwd: folder);
+            r = await runner.RunAsync(WhisperPath, args.Concat(new[] { "--vad", "-vm", ShortPath(VadModelPath) }).ToList(), cwd: folder, cancel: cancel);
+            if (r.Status != 0) r = await runner.RunAsync(WhisperPath, args, cwd: folder, cancel: cancel);
         }
         else
         {
-            r = await runner.RunAsync(WhisperPath, args, cwd: folder);
+            r = await runner.RunAsync(WhisperPath, args, cwd: folder, cancel: cancel);
         }
         if (r.Status != 0)
             throw new PipelineException($"Transcription failed: {Tail(r.Err.Length > 0 ? r.Err : r.Out, 400)}");
@@ -151,11 +161,14 @@ public sealed class Pipeline
             _ => (new List<string> { "-p", prompt }, transcript, false),
         };
 
-    public async Task<string> SummarizeAsync(string transcript, Meta meta, AppSettings settings, string folder)
+    public async Task<string> SummarizeAsync(string transcript, Meta meta, AppSettings settings, string folder,
+                                             IProgress<string>? progress = null, CancellationToken cancel = default)
     {
         var provider = settings.Provider;
+        if (provider == NotesProvider.BuiltIn)
+            return await BuiltIn.SummarizeAsync(transcript, meta, settings, meta.Lang ?? settings.Language, progress, cancel);
         var prompt = Prompt.NotesPrompt(meta, settings.MyName, settings.Instructions);
-        if (provider == NotesProvider.Ollama) return await Ollama.ChatAsync(prompt, transcript, settings);
+        if (provider == NotesProvider.Ollama) return await Ollama.ChatAsync(prompt, transcript, settings, cancel);
 
         var label = ProviderInfo.Label(provider);
         var exe = Tools.Executable(provider, settings)
@@ -171,7 +184,7 @@ public sealed class Pipeline
                 work = Path.Combine(Path.GetTempPath(), "meetingnotes-codex-" + Guid.NewGuid().ToString("N"));
                 Directory.CreateDirectory(work);
             }
-            r = await runner.RunAsync(exe, args, input, work ?? folder);
+            r = await runner.RunAsync(exe, args, input, work ?? folder, cancel);
         }
         finally
         {

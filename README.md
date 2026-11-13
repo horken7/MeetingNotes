@@ -55,13 +55,14 @@ and the [iPhone app](ios/README.md) use the same folder layout, on the phone.
 | Platform | Download | Requirements |
 |---|---|---|
 | Mac | [MeetingNotes.dmg](https://github.com/horken7/MeetingNotes/releases/latest/download/MeetingNotes.dmg) | macOS 15 (Sequoia) or newer, Apple silicon or Intel |
-| Windows | [MeetingNotes-Setup.exe](https://github.com/horken7/MeetingNotes/releases/latest/download/MeetingNotes-Setup.exe) | Windows 10 (1809) or 11, x64 (Windows on Arm runs it emulated) |
+| Windows | MeetingNotes-Setup.exe + MeetingNotes-Setup-1.bin (about 4.2 GB; the download link is on the [latest release](https://github.com/horken7/MeetingNotes/releases/latest)) | Windows 10 (1809) or 11, x64 (Windows on Arm runs it emulated), 8 GB of memory, about 5 GB of disk |
 | Android | [MeetingNotes.apk](https://github.com/horken7/MeetingNotes/releases/latest/download/MeetingNotes.apk) | Android 10 or newer, 64-bit Arm (most phones from 2019 on), 4 GB of memory |
 | iPhone | Build from source with Xcode ([below](#iphone)); not on the App Store yet | iOS 26 or newer |
 
 The files are on the [latest GitHub Release](https://github.com/horken7/MeetingNotes/releases/latest). The speech models
-are inside each download (the DMG and the Windows installer are about 1.7 GB, the APK about 1.4 GB), so nothing more is
-downloaded for transcription at first run.
+are inside each download (the DMG is about 1.7 GB, the APK about 1.4 GB), so nothing more is downloaded for
+transcription at first run. The Windows installer also has the notes model inside (about 4.2 GB in all), which is over
+GitHub's 2 GB limit for a release file, so the release links to where it's hosted.
 
 **Buy:** the ready-made apps, with updates and setup help by email, are sold at
 [meetingnotes.frinkle.se](https://meetingnotes.frinkle.se) by Frinkle AB (Sweden): €29 per platform, or Mac, Windows and
@@ -84,11 +85,14 @@ unless you use the local model, which needs no account but about 8 GB of disk an
 
 ### Windows
 
-Run [MeetingNotes-Setup.exe](https://github.com/horken7/MeetingNotes/releases/latest/download/MeetingNotes-Setup.exe). It
-installs for your user only (no administrator rights) to `%LOCALAPPDATA%\Programs\MeetingNotes`. The installer isn't
-signed yet, so the first time Windows SmartScreen says "Windows protected your PC": click **More info**, then
-**Run anyway**. On first launch a setup assistant helps install and sign in to the notes provider. See
-[windows/README.md](windows/README.md).
+Download **MeetingNotes-Setup.exe** and **MeetingNotes-Setup-1.bin** (or the zip with both) from the link on the
+[latest release](https://github.com/horken7/MeetingNotes/releases/latest), put them in the same folder and run
+MeetingNotes-Setup.exe. By default it installs for your user only (no administrator rights) to
+`%LOCALAPPDATA%\Programs\MeetingNotes`; you can pick another folder (another drive, for example), or install for all
+users if you have administrator rights. Updates reuse that folder. The installer isn't signed yet, so the first time
+Windows SmartScreen says "Windows protected your PC": click **More info**, then **Run anyway**. Notes work right away
+with the built-in model (Gemma 3 4B, on the PC, no account); Claude Code, Codex or Ollama are optional and the setup
+assistant helps install and sign in to them. See [windows/README.md](windows/README.md).
 
 ### Android
 
@@ -111,7 +115,7 @@ Everything runs on your device. The models come from public Hugging Face reposit
 | | Speech recognition (whisper.cpp) | Notes |
 |---|---|---|
 | Mac | Whisper large-v3-turbo and Silero voice detection, built in | Claude Code (`claude -p`), Codex (`codex exec`) or Ollama (default `gemma3:12b`, downloaded with Ollama) |
-| Windows | Whisper large-v3-turbo and Silero voice detection, built in | Claude Code, Codex or Ollama, as on the Mac |
+| Windows | Whisper large-v3-turbo and Silero voice detection, built in | Gemma 3 4B (Q4_K_M) in llama.cpp, built in (the default). Optional: Claude Code, Codex or Ollama, as on the Mac |
 | Android | Whisper large-v3-turbo (q5_0) and Silero, built in. Optional downloads: [KB-Whisper](https://huggingface.co/KBLab/kb-whisper-small) small for Swedish, Whisper small (faster) for other languages | Gemma 3 1B in llama.cpp, built in. Optional download: Gemma 3 4B |
 | iPhone | Whisper small and Silero, built in. Optional downloads: [KB-Whisper](https://huggingface.co/KBLab/kb-whisper-medium) medium or large for Swedish, Whisper large-v3-turbo for English and Danish | Gemma 3 1B in llama.cpp, built in. Optional: Gemma 3 4B, or Apple Intelligence on iPhones that have it |
 
@@ -124,7 +128,8 @@ models. Gemma is provided under the [Gemma Terms of Use](https://ai.google.dev/g
   turn on **Keep audio recordings** in Settings (needed to redo a transcript).
 - Transcription always runs on the device.
 - On Mac and Windows, with Claude or Codex only the text transcript is sent to Anthropic or OpenAI, through your own
-  account, to write the notes. With the local model (Ollama) nothing leaves the computer.
+  account, to write the notes. With a local model (the Windows app's built-in model, or Ollama) nothing leaves the
+  computer.
 - On the phones the notes are written on the phone, and the network is only used to download optional models. On
   Android, **Share…** sends a transcript to the Claude app (or another app) only when you choose to.
 - The apps have no accounts, analytics or telemetry. The MCP server is read-only and runs only when an AI app starts it.
@@ -157,7 +162,7 @@ The installer:
 Needs the .NET 8 SDK on Windows (the Core library and its tests also run on macOS and Linux):
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File windows\build.ps1   # tests, bundles whisper.cpp and the models, makes windows\artifacts\MeetingNotes-Setup.exe
+powershell -ExecutionPolicy Bypass -File windows\build.ps1   # tests, bundles whisper.cpp, llama.cpp and the models, makes windows\artifacts\MeetingNotes-Setup.exe (+ -1.bin)
 ```
 
 More in [windows/README.md](windows/README.md#development).

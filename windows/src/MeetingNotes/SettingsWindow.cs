@@ -154,6 +154,9 @@ sealed class SettingsWindow : Window
         providerOptions.Children.Clear();
         switch (s.Provider)
         {
+            case NotesProvider.BuiltIn:
+                providerOptions.Children.Add(Toggle("Use the graphics card when there is one (Vulkan)", s.BuiltInGpu, v => s.BuiltInGpu = v));
+                break;
             case NotesProvider.Claude:
                 providerOptions.Children.Add(Labeled("Claude executable (optional)", PathBox(s.ClaudePath, v => s.ClaudePath = v)));
                 break;
@@ -166,7 +169,9 @@ sealed class SettingsWindow : Window
                 break;
         }
         providerOptions.Children.Add(UI.Hint(ProviderInfo.LoginHint(s.Provider)));
-        providerOptions.Children.Add(UI.Hint(s.Provider == NotesProvider.Ollama
+        providerOptions.Children.Add(UI.Hint(s.Provider == NotesProvider.BuiltIn
+            ? "The notes are written on this PC by the built-in model. Nothing leaves the computer. If notes fail with the graphics card, turn it off: the processor is slower but always works."
+            : s.Provider == NotesProvider.Ollama
             ? "The notes are written on this PC by the local model. Nothing leaves the computer (unless the address points to another computer)."
             : "The text transcript is sent to the selected provider. Audio stays on this PC."));
     }

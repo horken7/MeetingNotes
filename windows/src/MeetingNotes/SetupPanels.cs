@@ -164,6 +164,7 @@ sealed class ProviderPanel : StackPanel
         result.Text = "";
         Build();
         if (p == NotesProvider.Ollama) _ = CheckOllama();
+        if (p == NotesProvider.BuiltIn) CheckBuiltIn();
     }
 
     void Build()
@@ -171,6 +172,7 @@ sealed class ProviderPanel : StackPanel
         Children.Clear();
         switch (provider)
         {
+            case NotesProvider.BuiltIn: BuildBuiltIn(); break;
             case NotesProvider.Claude: BuildClaude(); break;
             case NotesProvider.Codex: BuildCodex(); break;
             default: BuildOllama(); break;
@@ -180,6 +182,23 @@ sealed class ProviderPanel : StackPanel
     static bool GitInstalled =>
         Tools.Find("git") != null || File.Exists(@"C:\Program Files\Git\bin\bash.exe")
         || File.Exists(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Programs", "Git", "bin", "bash.exe"));
+
+    void BuildBuiltIn()
+    {
+        var server = File.Exists(BuiltIn.Server);
+        var model = File.Exists(BuiltIn.Model);
+        Children.Add(UI.Text($"{BuiltIn.ModelName} writes the notes on this PC with llama.cpp. It comes with Meeting Notes: no account, no download, and nothing leaves the computer.", 13));
+        Children.Add(UI.Check(server ? "llama.cpp (llama-server) is installed" : "llama-server.exe is missing; reinstall Meeting Notes", server));
+        Children.Add(UI.Check(model ? $"{BuiltIn.ModelName} is installed" : $"{BuiltIn.ModelFile} is missing; reinstall Meeting Notes", model));
+        Children.Add(UI.Hint("It needs about 4 GB of free memory while it writes (8 GB or more in the PC is best). A one-hour meeting takes several minutes, less with a graphics card. You can keep working meanwhile."));
+        Children.Add(result);
+    }
+
+    void CheckBuiltIn()
+    {
+        var problem = BuiltIn.Problem();
+        Finish(problem == null, problem ?? "\u2714 Ready. Nothing to set up.");
+    }
 
     void BuildClaude()
     {
@@ -306,6 +325,11 @@ sealed class ProviderPanel : StackPanel
         if (provider == NotesProvider.Ollama)
         {
             await CheckOllama();
+            return;
+        }
+        if (provider == NotesProvider.BuiltIn)
+        {
+            CheckBuiltIn();
             return;
         }
         checking = true;

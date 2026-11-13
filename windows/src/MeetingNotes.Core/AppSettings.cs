@@ -3,7 +3,7 @@ using System.Text.Json.Serialization;
 
 namespace MeetingNotes.Core;
 
-public enum NotesProvider { Claude, Codex, Ollama }
+public enum NotesProvider { BuiltIn, Claude, Codex, Ollama }
 
 /// The app's settings, stored as JSON in %LOCALAPPDATA%\MeetingNotes\settings.json.
 /// The keys match the Mac app's UserDefaults keys (myName, outputDir, notesProvider…).
@@ -21,7 +21,10 @@ public sealed class AppSettings
     public string CodexPath { get; set; } = "";
     public string OllamaModel { get; set; } = Ollama.DefaultModel;
     public string OllamaUrl { get; set; } = Ollama.DefaultUrl;
-    public string NotesProvider { get; set; } = "claude";
+    /// New installs use the built-in model; existing settings files keep the provider they have.
+    public string NotesProvider { get; set; } = "builtin";
+    /// Let the built-in model use the graphics card (Vulkan) when there is one; it falls back to the CPU anyway.
+    public bool BuiltInGpu { get; set; } = true;
     /// Empty means the default instructions.
     public string NotesInstructions { get; set; } = "";
     public string PromptStyle { get; set; } = "notification";   // "notification" or "panel"
