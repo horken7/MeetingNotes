@@ -26,9 +26,11 @@ public partial class MainWindow : Window
         InitializeComponent();
         model.Changed += OnModelChanged;
         model.SelectRequested += Select;
+        model.ProgressChanged += OnProgress;
         Closed += (_, _) =>
         {
             model.Changed -= OnModelChanged;
+            model.ProgressChanged -= OnProgress;
             model.SelectRequested -= Select;
             clock.Stop();
         };
@@ -220,6 +222,12 @@ public partial class MainWindow : Window
         if (newMeeting || oldNotes != notes || oldTranscript != transcript) RefreshMatches();
     }
 
+    void OnProgress(string folder)
+    {
+        if (Current is { } m && m.Folder == folder && m.Status == "summarizing" && model.ProgressText(folder) is { } text)
+            StatusText.Text = text;
+    }
+
     void UpdateStatus(Meeting m)
     {
         StatusBox.Visibility = Visibility.Visible;
@@ -241,8 +249,13 @@ public partial class MainWindow : Window
                 StatusProgress.Visibility = Visibility.Visible;
                 break;
             case "summarizing":
-                StatusText.Text = "Writing the notes…";
+                StatusText.Text = model.ProgressText(m.Folder) ?? "Writing the notes…";
                 StatusProgress.Visibility = Visibility.Visible;
+                if (model.CanStop(m.Folder))
+                {
+                    StatusButton.Content = "Stop";
+                    StatusButton.Visibility = Visibility.Visible;
+                }
                 break;
             case "failed":
                 StatusText.Text = "⚠  " + (m.Meta.Error ?? "Something went wrong.");
@@ -361,6 +374,7 @@ public partial class MainWindow : Window
     {
         if (Current is not { } m) return;
         if (m.Status == "recording") model.Stop();
+        else if (m.Status == "summarizing") model.StopWork(m);
         else if (m.Status == "failed") model.Retry(m, notesOnly: transcript.Length > 0);
     }
 

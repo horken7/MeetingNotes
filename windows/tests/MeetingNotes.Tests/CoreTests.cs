@@ -586,7 +586,7 @@ public class AudioTests
 
 public class PipelineTests
 {
-    sealed class FakeRunner : IProcessRunner
+    internal sealed class FakeRunner : IProcessRunner
     {
         public List<(string Exe, List<string> Args, string? Input, string? Cwd)> Calls { get; } = new();
         public Func<string, List<string>, RunResult> Reply { get; set; } = (_, _) => new RunResult(0, "", "");
@@ -630,7 +630,7 @@ public class PipelineTests
             return new RunResult(0, "## Sammanfattning\n- Hälsningar", "");
         };
         var pipeline = new Pipeline(runner) { WhisperPath = whisper, ModelPath = model, VadModelPath = model };
-        var settings = new AppSettings { MyName = "Anna", ClaudePath = claude, KeepAudio = false };
+        var settings = new AppSettings { MyName = "Anna", Provider = NotesProvider.Claude, ClaudePath = claude, KeepAudio = false };
         await pipeline.RunAsync(folder, settings);
 
         var meta = Store.ReadMeta(folder)!;

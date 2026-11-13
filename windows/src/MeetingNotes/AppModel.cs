@@ -33,6 +33,21 @@ sealed class AppModel
     public event Action? Changed;
     /// Show this meeting in the window (after starting a recording or clicking a notification).
     public event Action<string>? SelectRequested;
+    /// A meeting's progress text changed (folder); cheaper than Changed, which reloads the list.
+    public event Action<string>? ProgressChanged;
+
+    readonly Dictionary<string, string> progressTexts = new();
+    readonly Dictionary<string, CancellationTokenSource> running = new();
+
+    /// What the notes step is doing right now ("Notes for part 2 of 4 (120 words written)"), if it says.
+    public string? ProgressText(string folder) => progressTexts.TryGetValue(folder, out var t) ? t : null;
+    public bool CanStop(string folder) => running.ContainsKey(folder);
+
+    /// Stops transcribing or writing notes for this meeting; it then shows Retry.
+    public void StopWork(Meeting m)
+    {
+        if (running.TryGetValue(m.Folder, out var c)) c.Cancel();
+    }
 
     Recorder? recorder;
     bool switching;          // replacing a failed capture; Stop() waits for it
@@ -326,9 +341,25 @@ sealed class AppModel
     async Task RunPipeline(string folder, bool notesOnly)
     {
         var settings = Settings.Clone();
-        await Task.Run(() => pipeline.RunAsync(folder, settings, notesOnly, () => App.OnUi(Reload)));
+        using var cancel = new CancellationTokenSource();
+        running[folder] = cancel;
+        var progress = new Progress<string>(text =>
+        {
+            if (!running.ContainsKey(folder)) return;
+            progressTexts[folder] = text;
+            ProgressChanged?.Invoke(folder);
+        });
+        try
+        {
+            await Task.Run(() => pipeline.RunAsync(folder, settings, notesOnly, () => App.OnUi(Reload), progress, cancel.Token));
+        }
+        finally
+        {
+            running.Remove(folder);
+            progressTexts.Remove(folder);
+        }
         Reload();
-        NotifyFinished(folder);
+        if (!cancel.IsCancellationRequested) NotifyFinished(folder);   // stopped by the user: no "couldn't finish"
     }
 
     void NotifyFinished(string folder)

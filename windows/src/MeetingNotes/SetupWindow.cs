@@ -15,10 +15,12 @@ sealed class SetupWindow : Window
     readonly Button next = new() { Content = "Next" };
     readonly TextBlock stepLabel = new() { Foreground = Brushes.Gray, VerticalAlignment = VerticalAlignment.Center };
     int step;
-    /// The pages shown: the speech model page only when the installed model is missing.
-    readonly string[] pages = AppPaths.ModelInstalled
-        ? new[] { "welcome", "provider", "setup", "finish" }
-        : new[] { "welcome", "model", "provider", "setup", "finish" };
+    /// The pages shown: the speech model page only when the installed model is missing, and the provider's setup
+    /// page only for providers that need setting up (the built-in model doesn't, when it's installed).
+    readonly bool modelMissing = !AppPaths.ModelInstalled;
+    string[] pages => new[] { "welcome", modelMissing ? "model" : null, "provider",
+                              s.Provider == NotesProvider.BuiltIn && BuiltIn.Installed ? null : "setup", "finish" }
+        .Where(x => x != null).Select(x => x!).ToArray();
     int Steps => pages.Length;
     ModelPanel? modelPanel;
     ProviderPanel? providerPanel;
@@ -119,6 +121,7 @@ sealed class SetupWindow : Window
         p.Children.Add(UI.Text("The transcript is turned into notes by an AI. Choose one; you can change it later in Settings.", 14));
         foreach (var (provider, description) in new[]
         {
+            (NotesProvider.BuiltIn, "Gemma 3 4B, built into Meeting Notes. Free and fully private, nothing to install or sign in to. The notes take a few minutes on this PC and are simpler than Claude's."),
             (NotesProvider.Claude, "Claude Code with your Claude account (Pro or Max plan). Best notes. The text transcript is sent to Anthropic."),
             (NotesProvider.Codex, "Codex with your ChatGPT account. The text transcript is sent to OpenAI."),
             (NotesProvider.Ollama, "A local model on this PC with Ollama. Free and fully private, but needs a fast computer with 16 GB of memory, and the notes are simpler."),
@@ -129,7 +132,7 @@ sealed class SetupWindow : Window
             label.Children.Add(new TextBlock { Text = ProviderInfo.Label(provider), FontWeight = FontWeights.SemiBold, FontSize = 14 });
             label.Children.Add(new TextBlock { Text = description, TextWrapping = TextWrapping.Wrap, Foreground = Brushes.DimGray, MaxWidth = 520 });
             radio.Content = label;
-            radio.Checked += (_, _) => s.Provider = provider;
+            radio.Checked += (_, _) => { s.Provider = provider; stepLabel.Text = $"Step {step + 1} of {Steps}"; };
             p.Children.Add(radio);
         }
         return p;
@@ -164,6 +167,10 @@ sealed class SetupWindow : Window
         p.Children.Add(UI.Text("• Or open Meeting Notes from the icon near the clock and press Start meeting.", 13.5));
         p.Children.Add(UI.Text("• When you leave the call, recording stops by itself. A notification tells you when the notes are ready.", 13.5));
         p.Children.Add(UI.Hint("Tip: Windows may hide the icon under the ^ arrow next to the clock. Drag it onto the taskbar to keep it visible."));
+        if (s.Provider == NotesProvider.BuiltIn)
+            p.Children.Add(UI.Text(BuiltIn.Problem() ??
+                "The notes are written by the built-in model on this PC. Nothing to set up; Settings > Notes has other options.", 13,
+                color: BuiltIn.Problem() == null ? Brushes.DimGray : Brushes.DarkOrange));
         if (!AppPaths.ModelInstalled)
             p.Children.Add(UI.Text("The speech model is still downloading (or missing). Meetings can be recorded meanwhile; they are transcribed once it's there (press Retry). Settings > Setup shows its progress.", 13, color: Brushes.DarkOrange));
         if (!Notifier.Allowed)
