@@ -30,9 +30,18 @@ func registerDefaults() {
     if UserDefaults.standard.object(forKey: position) == nil {
         UserDefaults.standard.set(300.0, forKey: position)
     }
+    // The notes provider is always saved, so changing the default for new installs (now the built-in
+    // model) never changes it for someone who already uses the app.
+    let d = UserDefaults.standard
+    let savedProvider = d.string(forKey: Keys.notesProvider)
+    let setupStarted = d.object(forKey: SetupModel.stepKey) != nil || d.bool(forKey: SetupModel.completedKey)
+    if let keep = NotesProvider.migrated(saved: savedProvider, setupStarted: setupStarted) {
+        d.set(keep.rawValue, forKey: Keys.notesProvider)
+    } else if savedProvider == nil {
+        d.set(NotesProvider.fallback.rawValue, forKey: Keys.notesProvider)
+    }
     let first = NSFullUserName().split(separator: " ").first.map(String.init) ?? "Me"
     UserDefaults.standard.register(defaults: [
-        Keys.notesProvider: NotesProvider.claude.rawValue,
         Keys.ollamaModel: Ollama.defaultModel,
         Keys.ollamaURL: Ollama.defaultURL,
         Keys.myName: first,
@@ -59,7 +68,7 @@ struct SettingsSnapshot {
             myName: d.string(forKey: Keys.myName) ?? "Me",
             language: d.string(forKey: Keys.language) ?? "auto",
             keepAudio: d.bool(forKey: Keys.keepAudio),
-            notesProvider: NotesProvider(rawValue: d.string(forKey: Keys.notesProvider) ?? "") ?? .claude
+            notesProvider: NotesProvider.saved(d.string(forKey: Keys.notesProvider))
         )
     }
 }
@@ -106,6 +115,7 @@ struct Meta: Codable, Hashable {
     var offsets: [String: Double]?
     var duration: Double?
     var audioArchived: Date?   // when the audio files were deleted with "Archive audio files"
+    var progress: String?      // the step the built-in notes model is on ("Summarizing part 2 of 4")
 }
 
 struct Meeting: Identifiable, Hashable {
@@ -247,6 +257,8 @@ final class AppModel: ObservableObject {
     @Published var now = Date()   // ticks every second while recording, for the menu bar clock
 
     private var recorder: AudioCapture?
+    /// The transcribe-and-write-notes runs in progress, by meeting folder, so writing the notes can be stopped.
+    private var pipelines: [String: Task<Void, Never>] = [:]
     private var switching = false        // replacing a failed capture; stop() waits for it
     private var stopAfterSwitch = false
     private var timer: Timer?
@@ -391,9 +403,26 @@ final class AppModel: ObservableObject {
                 $0.status = "transcribing"
             }
             reload()
-            await Pipeline.run(folder: active.folder) { [weak self] in self?.reload() }
-            notifyFinished(active.folder)
+            await runPipeline(active.folder, notesOnly: false)
         }
+    }
+
+    /// Transcribes and writes the notes, as a task that `stopNotes` can cancel.
+    private func runPipeline(_ folder: URL, notesOnly: Bool) async {
+        let task = Task { [weak self] in
+            await Pipeline.run(folder: folder, notesOnly: notesOnly) { self?.reload() }
+        }
+        pipelines[folder.path] = task
+        await task.value
+        pipelines[folder.path] = nil
+        if !task.isCancelled { notifyFinished(folder) }   // no "couldn't finish" after pressing Stop
+    }
+
+    func canStop(_ m: Meeting) -> Bool { m.status == "summarizing" && pipelines[m.folder.path] != nil }
+
+    /// Stops writing the notes (the running model or CLI is terminated); Retry writes them later.
+    func stopNotes(_ m: Meeting) {
+        pipelines[m.folder.path]?.cancel()
     }
 
     func stopForQuit() async {
@@ -492,10 +521,7 @@ final class AppModel: ObservableObject {
             $0.error = nil
         }
         reload()
-        Task {
-            await Pipeline.run(folder: m.folder, notesOnly: notesOnly) { [weak self] in self?.reload() }
-            notifyFinished(m.folder)
-        }
+        Task { await runPipeline(m.folder, notesOnly: notesOnly) }
     }
 
     func rename(_ m: Meeting, to newTitle: String) {

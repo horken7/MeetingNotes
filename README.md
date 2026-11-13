@@ -10,7 +10,9 @@ action items, open questions and key points.
 
 - **Mac and Windows, for video calls.** Records your microphone and the call audio as two tracks, transcribes them on
   your computer, and writes the notes with [Claude Code](https://claude.com/claude-code),
-  [Codex (OpenAI)](https://developers.openai.com/codex/cli/) or a local model with [Ollama](https://ollama.com).
+  [Codex (OpenAI)](https://developers.openai.com/codex/cli/) or a local model with [Ollama](https://ollama.com). The Mac
+  app also has a built-in model (Google's Gemma 3 4B in [llama.cpp](https://github.com/ggml-org/llama.cpp)) that writes
+  the notes right after install, on the Mac, with no account or setup.
 - **Android and iPhone, for in-person meetings.** Records with the phone's microphone and makes the transcript and the
   notes on the phone, offline, with Whisper and Google's Gemma 3 running in [llama.cpp](https://github.com/ggml-org/llama.cpp).
 - **Ask Claude about your meetings.** A read-only [MCP](https://modelcontextprotocol.io) server lets Claude Desktop,
@@ -27,8 +29,11 @@ yourself for free.
 - **Detects calls automatically.** When an app such as Google Meet (in any browser), Zoom, Teams or FaceTime starts
   using the microphone, a small prompt offers to take notes, and recording stops a few seconds after you leave the call.
 - **Names meetings for you.** In browsers it reads the call tab's title (e.g. "Meet – Weekly sync" becomes "Weekly sync").
-- **Private by default.** Audio never leaves your Mac and is deleted as soon as the transcript is ready. Only the text
-  transcript is sent to your selected provider to write the notes. With the local model (Ollama) nothing leaves your Mac at all.
+- **Notes out of the box.** The built-in model (Gemma 3 4B) writes the notes on your Mac, with no account, no
+  Ollama and no setup. Claude Code, Codex or Ollama are optional, for better notes or a bigger model.
+- **Private by default.** Audio never leaves your Mac and is deleted as soon as the transcript is ready. With the
+  built-in model or Ollama nothing leaves your Mac at all; with Claude or Codex only the text transcript is sent to write
+  the notes.
 - **Runs in the background.** It starts at login without a window, lives in the menu bar, and sends a notification
   when the notes for a meeting are ready.
 - **Swedish, Danish and English** (or automatic language detection). Notes are written in the meeting's language.
@@ -54,15 +59,17 @@ and the [iPhone app](ios/README.md) use the same folder layout, on the phone.
 
 | Platform | Download | Requirements |
 |---|---|---|
-| Mac | [MeetingNotes.dmg](https://github.com/horken7/MeetingNotes/releases/latest/download/MeetingNotes.dmg) | macOS 15 (Sequoia) or newer, Apple silicon or Intel |
+| Mac | MeetingNotes.dmg (about 4 GB; the download link is on the [latest release](https://github.com/horken7/MeetingNotes/releases/latest)) | macOS 15 (Sequoia) or newer, Apple silicon or Intel, 8 GB of memory, about 4 GB of disk |
 | Windows | MeetingNotes-Setup.exe + MeetingNotes-Setup-1.bin (about 4.2 GB; the download link is on the [latest release](https://github.com/horken7/MeetingNotes/releases/latest)) | Windows 10 (1809) or 11, x64 (Windows on Arm runs it emulated), 8 GB of memory, about 5 GB of disk |
 | Android | [MeetingNotes.apk](https://github.com/horken7/MeetingNotes/releases/latest/download/MeetingNotes.apk) | Android 10 or newer, 64-bit Arm (most phones from 2019 on), 4 GB of memory |
 | iPhone | Build from source with Xcode ([below](#iphone)); not on the App Store yet | iOS 26 or newer |
 
-The files are on the [latest GitHub Release](https://github.com/horken7/MeetingNotes/releases/latest). The speech models
-are inside each download (the DMG is about 1.7 GB, the APK about 1.4 GB), so nothing more is downloaded for
-transcription at first run. The Windows installer also has the notes model inside (about 4.2 GB in all), which is over
-GitHub's 2 GB limit for a release file, so the release links to where it's hosted.
+The files are on the [latest GitHub Release](https://github.com/horken7/MeetingNotes/releases/latest). The models are
+inside each download, so nothing more is downloaded at first run: the APK (about 1.4 GB) has the speech and notes
+models, and the Mac DMG (about 4 GB) and the Windows installer (about 4.2 GB) also have the built-in notes model. Those
+two are over GitHub's 2 GB limit for a release file, so the release links to where they're hosted; each Mac build is
+also kept for 30 days as the `MeetingNotes-dmg` artifact of the
+[Mac app workflow](https://github.com/horken7/MeetingNotes/actions/workflows/release-mac.yml).
 
 **Buy:** the ready-made apps, with updates and setup help by email, are sold at
 [meetingnotes.frinkle.se](https://meetingnotes.frinkle.se) by Frinkle AB (Sweden): €29 per platform, or Mac, Windows and
@@ -70,18 +77,18 @@ Android together for €59, VAT included, paid once through Stripe. Buying also 
 
 ### Mac
 
-1. Download [MeetingNotes.dmg](https://github.com/horken7/MeetingNotes/releases/latest/download/MeetingNotes.dmg), open
-   it and drag **Meeting Notes** to **Applications**.
+1. Download MeetingNotes.dmg (about 4 GB, see above), open it and drag **Meeting Notes** to **Applications**, or to
+   any other folder you like (for example `~/Applications`): the app works from anywhere. It needs about 4 GB of disk.
 2. Open it. The app is signed ad hoc and **not notarized** by Apple, so the first time macOS says it can't verify the
    app. Click **Done** (not Move to Trash), open **System Settings > Privacy & Security**, scroll down to the message
    about Meeting Notes, click **Open Anyway** and confirm. (On macOS 14 and older, right-clicking the app and choosing
    **Open** did the same; macOS 15 removed that shortcut.) You only need to do this once per version.
-3. A setup window installs and signs in to the notes provider you choose (Claude, Codex or the local model) and asks for
-   the permissions. whisper-cli, the Whisper large-v3-turbo model, the voice activity model and the MCP server are
-   inside the app.
+3. A setup window asks for the permissions. The notes are written by the built-in model from the start; if you prefer
+   Claude, Codex or Ollama, it installs and signs in to that instead. whisper-cli, llama.cpp, the Whisper
+   large-v3-turbo model, the voice activity model, Gemma 3 4B and the MCP server are inside the app.
 
-A Claude account (for Claude Code) or a Codex login (ChatGPT or API authentication) is needed to write the notes,
-unless you use the local model, which needs no account but about 8 GB of disk and 16 GB of memory.
+No account is needed: the built-in model needs a Mac with 8 GB of memory. Claude Code needs a Claude account, Codex a
+ChatGPT or OpenAI login, and Ollama's default model about 8 GB of disk and 16 GB of memory.
 
 ### Windows
 
@@ -114,7 +121,7 @@ Everything runs on your device. The models come from public Hugging Face reposit
 
 | | Speech recognition (whisper.cpp) | Notes |
 |---|---|---|
-| Mac | Whisper large-v3-turbo and Silero voice detection, built in | Claude Code (`claude -p`), Codex (`codex exec`) or Ollama (default `gemma3:12b`, downloaded with Ollama) |
+| Mac | Whisper large-v3-turbo and Silero voice detection, built in | [Gemma 3 4B](https://huggingface.co/ggml-org/gemma-3-4b-it-GGUF) (Q4_K_M, 2.5 GB) in llama.cpp, built in (the default). Optional: Claude Code (`claude -p`), Codex (`codex exec`) or Ollama (default `gemma3:12b`, downloaded with Ollama) |
 | Windows | Whisper large-v3-turbo and Silero voice detection, built in | Gemma 3 4B (Q4_K_M) in llama.cpp, built in (the default). Optional: Claude Code, Codex or Ollama, as on the Mac |
 | Android | Whisper large-v3-turbo (q5_0) and Silero, built in. Optional downloads: [KB-Whisper](https://huggingface.co/KBLab/kb-whisper-small) small for Swedish, Whisper small (faster) for other languages | Gemma 3 1B in llama.cpp, built in. Optional download: Gemma 3 4B |
 | iPhone | Whisper small and Silero, built in. Optional downloads: [KB-Whisper](https://huggingface.co/KBLab/kb-whisper-medium) medium or large for Swedish, Whisper large-v3-turbo for English and Danish | Gemma 3 1B in llama.cpp, built in. Optional: Gemma 3 4B, or Apple Intelligence on iPhones that have it |
@@ -128,8 +135,7 @@ models. Gemma is provided under the [Gemma Terms of Use](https://ai.google.dev/g
   turn on **Keep audio recordings** in Settings (needed to redo a transcript).
 - Transcription always runs on the device.
 - On Mac and Windows, with Claude or Codex only the text transcript is sent to Anthropic or OpenAI, through your own
-  account, to write the notes. With a local model (the Windows app's built-in model, or Ollama) nothing leaves the
-  computer.
+  account, to write the notes. With the built-in model (Mac and Windows) or Ollama nothing leaves the computer.
 - On the phones the notes are written on the phone, and the network is only used to download optional models. On
   Android, **Share…** sends a transcript to the Claude app (or another app) only when you choose to.
 - The apps have no accounts, analytics or telemetry. The MCP server is read-only and runs only when an AI app starts it.
@@ -139,20 +145,22 @@ models. Gemma is provided under the [Gemma Terms of Use](https://ai.google.dev/g
 ### Mac
 
 Needs macOS 15, the Xcode command line tools (`xcode-select --install`), [Homebrew](https://brew.sh) and about 2 GB of
-disk for the speech model.
+disk for the speech model (4.5 GB with the built-in notes model).
 
 ```bash
 git clone https://github.com/horken7/MeetingNotes.git
 cd MeetingNotes
-bash install.sh                       # Claude by default
+bash install.sh                       # the built-in model (Gemma 3 4B) by default
+# or: bash install.sh --provider claude
 # or: bash install.sh --provider codex
-# or: bash install.sh --provider ollama   # fully local notes
+# or: bash install.sh --provider ollama
 ```
 
 The installer:
 
-1. installs `whisper-cpp` with Homebrew and the selected notes CLI if needed,
+1. installs `whisper-cpp` with Homebrew, and `llama.cpp` (for the built-in model) or the selected notes CLI if needed,
 2. downloads the Whisper `large-v3-turbo` model (about 1.6 GB) and the Silero voice activity model to `~/.meetnotes/`,
+   and for the built-in model Gemma 3 4B (about 2.5 GB, checksum verified),
 3. compiles the app with `swiftc`, signs it ad hoc and installs it to `/Applications/Meeting Notes.app`,
 4. builds the MCP server to `~/.meetnotes/bin/meetingnotes-mcp`,
 5. opens the app.
@@ -197,12 +205,34 @@ the app hears the other people on the call; it never records the screen, so Scre
 detected in a browser, macOS also asks to let Meeting Notes read the browser's tabs, which is used only for the
 meeting name.
 
-With the DMG, the setup window installs the notes CLI and signs you in (Settings > Set up Meeting Notes… opens it
+New installs write the notes with the built-in model, so there is nothing to set up for them. People who used
+Meeting Notes before the built-in model existed keep the provider they had. To use Claude Code or Codex instead, pick it
+in the setup window, which installs the CLI and signs you in (Settings > Set up Meeting Notes… opens it
 again). When built from source, log in once in Terminal: `claude` for Claude Code or `codex login` for Codex.
 Choose **Settings > Notes > Write notes with** to switch providers, including when regenerating notes.
-Install the other CLI before switching (or rerun `bash install.sh --provider claude|codex|ollama` with one provider).
+Install the other CLI before switching (or rerun `bash install.sh --provider builtin|claude|codex|ollama` with one provider).
 For a custom or npm installation, set the executable's absolute path in Settings. Reinstalling without
 `--provider` preserves your selected provider.
+
+### The built-in notes model
+
+**Built-in (Gemma 3 4B, on this Mac)** runs Google's Gemma 3 4B instruct (Q4_K_M, 2.5 GB) with llama.cpp's
+`llama-completion`, both inside the app, on the GPU with Metal on Apple silicon and on the CPU on Intel Macs. Each call
+is a separate process, so nothing stays in memory between meetings; it uses about 3.5 GB of memory while it writes
+(most of it the model file, mapped from disk), so a Mac with 8 GB is enough. **Stop** next to "Writing the notes" ends it
+at once; **Retry** writes the notes later from the saved transcript.
+
+It uses the prompts made for the phone apps (shared with the iPhone app in `ios/MeetingCore`): grounding rules against
+invented names, numbers and decisions; the meeting's language (from Settings, or recognized in the transcript) with
+headings in Swedish, Danish or English; and long meetings summarized in parts of about 15 to 20 minutes that are then
+combined (with a 16k-token context). A transcript of under 30 words gets a short note instead of invented notes. Custom
+instructions from Settings are used as they are; the default instructions are replaced by the same sections worded for
+a small model (action items as checkboxes, and "Not mentioned" under an empty heading).
+
+On an M4 Pro, a 5-minute meeting takes about 10 seconds and a 30-minute one about 40 seconds (prompt about 750 tokens per
+second, answer about 70); a base M1 is a few times slower, and an Intel Mac much slower (minutes per part). The notes are
+good for summaries, decisions and action items, but simpler than Claude's, and a 4B model sometimes repeats a point or
+gets a detail wrong, so check numbers and dates that matter.
 
 ### Local notes with Ollama
 
@@ -283,8 +313,9 @@ automatic start/stop, open at login and whether audio is kept in **Settings**.
 ## Ask Claude and other AI apps about your meetings (MCP)
 
 The Mac app comes with a small, read-only [MCP](https://modelcontextprotocol.io) server, so Claude Desktop, Claude Code
-and other MCP clients can look up your meetings. In the DMG app it is
-`/Applications/Meeting Notes.app/Contents/MacOS/meetingnotes-mcp`; `install.sh` builds it to
+and other MCP clients can look up your meetings. In the DMG app it is `Contents/MacOS/meetingnotes-mcp` inside the app,
+for example `/Applications/Meeting Notes.app/Contents/MacOS/meetingnotes-mcp` (Settings > Setup shows and copies the
+path of your copy, wherever you put it); `install.sh` builds it to
 `~/.meetnotes/bin/meetingnotes-mcp`. The Windows app has the same server (`meetingnotes-mcp.exe`) and the same buttons,
 see [windows/README.md](windows/README.md).
 It reads `meta.json`, `notes.md` and `transcript.md` in your meetings folder (the one set in Settings), never
@@ -339,7 +370,8 @@ like any other text you share with it.
 | `src/Recorder.swift` | Mic (AVAudioEngine) and system audio (Core Audio process tap) capture into two `.caf` files |
 | `src/MicMonitor.swift` | Which apps are using the microphone or playing sound (Core Audio process objects) |
 | `src/CallInfo.swift` | Meeting name from the browser's call tab |
-| `src/Pipeline.swift` | `afconvert` to 16 kHz WAV, `whisper-cli` transcription, transcript merge, notes via `claude -p`, `codex exec` or Ollama's `/api/chat` |
+| `src/Pipeline.swift` | `afconvert` to 16 kHz WAV, `whisper-cli` transcription, transcript merge, notes via the built-in model, `claude -p`, `codex exec` or Ollama's `/api/chat` |
+| `src/BuiltIn.swift` | The built-in notes model: Gemma 3 4B run by the bundled `llama-completion`, with the prompts, chunking and tidying shared with the iPhone app (`ios/MeetingCore/Sources/MeetingCore/Notes.swift`, `Grounding.swift`, `Transcript.swift`, compiled into the Mac app) |
 | `src/MicRecorder.swift` | Microphone-only capture, used when call audio isn't available |
 | `src/Views.swift` | SwiftUI views, Markdown rendering, settings, the meeting prompt |
 | `src/Setup.swift`, `src/SetupView.swift` | The first-run setup window: resumable downloads, installing and signing in to the notes providers |
@@ -363,7 +395,8 @@ bash install.sh       # builds and installs the app
 
 The tests are a small runner in `tests/main.swift` (no XCTest needed, so the command line tools are enough). They cover
 the transcript merge, noise filtering, meeting folders and metadata, call-app grouping, meeting title parsing and the
-provider routing, CLI failures, the Ollama request and errors (against a mock server) and the Claude environment, plus JSON-RPC round trips through the built MCP server. CI runs the same script on GitHub Actions (`macos-15`).
+provider routing, CLI failures, the Ollama request and errors (against a mock server), the built-in model's prompts,
+parts, progress and Stop (against a fake `llama-completion`) and the Claude environment, plus JSON-RPC round trips through the built MCP server. CI runs the same script on GitHub Actions (`macos-15`).
 
 To refresh the README screenshots (only this needs Screen Recording; macOS asks for it the first time):
 
@@ -376,9 +409,25 @@ The other platforms are developed in [windows/](windows/README.md#development), 
 and [ios/](ios/README.md#develop), and the website in [website/](website/README.md), each with its own CI workflow in
 `.github/workflows/` (`windows.yml`, `android.yml`, `ios.yml`, `website.yml`).
 
-The downloadable Mac app is built by `.github/workflows/release-mac.yml` on every `v*` tag (and as an artifact on pull
-requests): `packaging/build-whisper.sh` builds a static, universal `whisper-cli` from a pinned whisper.cpp release,
-`packaging/fetch-models.sh` downloads the speech models from pinned revisions (checksums verified), `packaging/build-app.sh` bundles them and whisper-cli with the app and the MCP server, and `packaging/make-dmg.sh` makes the disk image.
+The downloadable Mac app is built by `.github/workflows/release-mac.yml` on every `v*` tag (and on pull requests):
+`packaging/build-whisper.sh` builds a static, universal `whisper-cli` from a pinned whisper.cpp release,
+`packaging/build-llama.sh` a static, universal `llama-completion` from a pinned llama.cpp release (the same as the iPhone
+app), `packaging/fetch-models.sh` downloads the speech models and Gemma 3 4B from pinned revisions (checksums
+verified), `packaging/build-app.sh` bundles them, whisper-cli and llama-completion with the app and the MCP server, and
+`packaging/make-dmg.sh` makes the disk image (about 4 GB). It is always kept as the `MeetingNotes-dmg` workflow
+artifact for 30 days, and attached to the GitHub Release only if it is under GitHub's 2 GB limit for release files
+(otherwise the run shows a notice, and the disk image is hosted by hand).
+
+To build the disk image locally:
+
+```bash
+bash packaging/build-whisper.sh build/whisper-cli
+bash packaging/build-llama.sh build/llama-completion
+bash packaging/fetch-models.sh build/models          # 4.1 GB
+WHISPER_CLI=build/whisper-cli LLAMA_CLI=build/llama-completion MODELS_DIR=build/models \
+  bash packaging/build-app.sh build
+bash packaging/make-dmg.sh "build/Meeting Notes.app" build/MeetingNotes.dmg
+```
 
 `docs/VERIFY.md` is the manual end-to-end checklist (permissions, recording, languages, auto-detection, robustness).
 

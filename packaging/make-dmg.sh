@@ -22,7 +22,7 @@ if command -v dmgbuild >/dev/null; then
 else
   echo "dmgbuild not found; making a plain disk image"
   mkdir -p "$WORK/stage"
-  cp -R "$APP" "$WORK/stage/"
+  cp -Rc "$APP" "$WORK/stage/" 2>/dev/null || cp -R "$APP" "$WORK/stage/"   # a clone: no second copy of the 4 GB of models
   ln -s /Applications "$WORK/stage/Applications"
   hdiutil create -volname "$VOLUME" -srcfolder "$WORK/stage" -fs HFS+ -format UDZO -ov "$OUT" >/dev/null
 fi

@@ -1,9 +1,11 @@
 name: Mac app (DMG)
 
-# Builds MeetingNotes.dmg: the app with whisper-cli, the speech models, the MCP server and the Claude
-# Desktop extension inside, ad hoc signed (not notarized). On a v* tag it is uploaded to that GitHub Release, next to
-# the Windows installer from the Windows job. On pull requests that touch the app or the packaging
-# it is built and kept as a workflow artifact for testing. The release-please workflow also calls it (workflow_call)
+# Builds MeetingNotes.dmg: the app with whisper-cli, llama-completion, the speech models, the built-in
+# notes model (Gemma 3 4B), the MCP server and the Claude Desktop extension inside, ad hoc signed (not
+# notarized). It is always kept as a workflow artifact (30 days). On a v* tag it is also uploaded to that
+# GitHub Release, next to the Windows installer from the Windows job, but only while it is under GitHub's
+# 2 GB limit for release files; with the notes model it is about 4 GB, so the release gets a notice instead and
+# the disk image is hosted elsewhere by hand. The release-please workflow also calls it (workflow_call)
 # with the tag it just created, since tags made with GITHUB_TOKEN do not trigger workflows.
 
 on:
@@ -13,6 +15,9 @@ on:
     paths:
       - "packaging/**"
       - "src/**"
+      - "ios/MeetingCore/Sources/MeetingCore/Notes.swift"       # shared with the built-in notes model
+      - "ios/MeetingCore/Sources/MeetingCore/Grounding.swift"
+      - "ios/MeetingCore/Sources/MeetingCore/Transcript.swift"
       - "mcp/**"
       - "makeicon.swift"
       - ".github/workflows/release-mac.yml"
@@ -73,18 +78,35 @@ jobs:
           build/whisper-cli --help 2>&1 | grep -- "--vad" >/dev/null
           otool -L build/whisper-cli
 
-      - name: Cache the speech models
+      - name: Cache llama-completion
+        id: llama-cache
+        uses: actions/cache@v4
+        with:
+          path: build/llama-completion
+          key: llama-completion-${{ hashFiles('packaging/build-llama.sh') }}
+
+      - name: Build llama-completion (universal, static, Metal)
+        if: steps.llama-cache.outputs.cache-hit != 'true'
+        run: bash packaging/build-llama.sh build/llama-completion
+
+      - name: Check llama-completion
+        run: |
+          [[ " $(lipo -archs build/llama-completion) " == *" arm64 "* && " $(lipo -archs build/llama-completion) " == *" x86_64 "* ]]
+          build/llama-completion --help 2>&1 | grep -- "--no-display-prompt" >/dev/null
+          otool -L build/llama-completion
+
+      - name: Cache the models
         uses: actions/cache@v4
         with:
           path: build/models
-          key: speech-models-${{ hashFiles('packaging/fetch-models.sh') }}
+          key: models-${{ hashFiles('packaging/fetch-models.sh') }}
 
-      - name: Speech models (checksums verified)
+      - name: Models (checksums verified)
         run: bash packaging/fetch-models.sh build/models
 
       - name: Build the app
         run: |
-          WHISPER_CLI=build/whisper-cli MODELS_DIR=build/models \
+          WHISPER_CLI=build/whisper-cli LLAMA_CLI=build/llama-completion MODELS_DIR=build/models \
             bash packaging/build-app.sh build "${{ steps.version.outputs.version }}"
 
       - name: Build the disk image
@@ -97,7 +119,7 @@ jobs:
           APP="$MOUNT/Meeting Notes.app"
           test -L "$MOUNT/Applications"
           codesign --verify --strict --deep "$APP"
-          for exe in MeetingNotes whisper-cli meetingnotes-mcp; do
+          for exe in MeetingNotes whisper-cli llama-completion meetingnotes-mcp; do
             archs=" $(lipo -archs "$APP/Contents/MacOS/$exe") "
             echo "$exe:$archs"
             [[ "$archs" == *" arm64 "* && "$archs" == *" x86_64 "* ]]
@@ -107,26 +129,41 @@ jobs:
             | "$APP/Contents/MacOS/meetingnotes-mcp" | grep '"serverInfo"' >/dev/null
           unzip -p "$APP/Contents/Resources/MeetingNotes.mcpb" manifest.json | python3 -c 'import json,sys; m=json.load(sys.stdin); assert m["server"]["entry_point"]=="server/launch.sh"; print(m["version"])'
           [[ "$(plutil -extract CFBundleShortVersionString raw "$APP/Contents/Info.plist")" == "${{ steps.version.outputs.version }}" ]]
-          for m in ggml-large-v3-turbo.bin ggml-silero-v5.1.2.bin; do
+          for m in ggml-large-v3-turbo.bin ggml-silero-v5.1.2.bin gemma-3-4b-it-Q4_K_M.gguf; do
             cmp "$APP/Contents/Resources/models/$m" "build/models/$m"
           done
+          # The built-in notes model answers (on the runner's CPU, so only a few tokens).
+          printf '<start_of_turn>user\nSay OK.<end_of_turn>\n<start_of_turn>model\n' > "$RUNNER_TEMP/prompt.txt"
+          "$APP/Contents/MacOS/llama-completion" -m "$APP/Contents/Resources/models/gemma-3-4b-it-Q4_K_M.gguf" \
+            -f "$RUNNER_TEMP/prompt.txt" -c 512 -n 8 -ngl 0 -no-cnv --no-display-prompt --no-warmup --simple-io \
+            2>/dev/null | tee "$RUNNER_TEMP/answer.txt"
+          [[ -n "$(tr -d '[:space:]' < "$RUNNER_TEMP/answer.txt")" ]]
           hdiutil detach "$MOUNT"
-          # GitHub release assets must be under 2 GiB.
+
+      - name: Size
+        id: size
+        run: |
           SIZE=$(stat -f %z build/MeetingNotes.dmg)
           echo "MeetingNotes.dmg: $SIZE bytes"
-          (( SIZE < 2000000000 ))
+          echo "bytes=$SIZE" >> "$GITHUB_OUTPUT"
+          # GitHub release files must be under 2 GiB.
+          if (( SIZE < 2147483648 )); then echo "fits=true" >> "$GITHUB_OUTPUT"; else echo "fits=false" >> "$GITHUB_OUTPUT"; fi
 
+      # Always kept here, also for releases: the disk image is too big for the release itself.
       - uses: actions/upload-artifact@v4
         with:
           name: MeetingNotes-dmg
           path: build/MeetingNotes.dmg
-          retention-days: 14
+          retention-days: 30
+          compression-level: 0   # a disk image is already compressed
 
       - name: Upload to the GitHub Release
         if: env.TAG != ''
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
+          FITS: ${{ steps.size.outputs.fits }}
+          BYTES: ${{ steps.size.outputs.bytes }}
         run: |
           # The Windows job may create the release at the same moment: create it only if missing,
           # and accept losing that race.
@@ -134,4 +171,14 @@ jobs:
             gh release create "$TAG" --title "Meeting Notes ${TAG#v}" --generate-notes \
               || gh release view "$TAG" >/dev/null
           fi
-          gh release upload "$TAG" build/MeetingNotes.dmg --clobber
+          if [[ "$FITS" == true ]]; then
+            gh release upload "$TAG" build/MeetingNotes.dmg --clobber
+          else
+            GB=$(awk "BEGIN { printf \"%.1f\", $BYTES / 1e9 }")
+            echo "::notice title=Mac disk image not uploaded::MeetingNotes.dmg is $GB GB, over GitHub's 2 GB limit for release files. Download it from this run's artifacts (MeetingNotes-dmg, kept 30 days) and host it yourself."
+            {
+              echo "### Mac disk image"
+              echo "MeetingNotes.dmg ($GB GB) is over GitHub's 2 GB limit for release files, so it isn't attached to the release."
+              echo "Download it from this run's artifacts (**MeetingNotes-dmg**, kept 30 days) and host it yourself."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
