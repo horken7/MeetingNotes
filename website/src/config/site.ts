@@ -24,13 +24,16 @@ export function siteUrl(): string {
   return "http://localhost:3000";
 }
 
-const download = (file: string) => `${site.githubUrl}/releases/latest/download/${file}`;
+// Installer files from the latest GitHub Release, unless an env var points somewhere else
+// (DOWNLOAD_URL_MAC, DOWNLOAD_URL_WINDOWS, DOWNLOAD_URL_ANDROID): installers over GitHub's 2 GB limit are hosted
+// elsewhere, for example a shared Google Drive link. Read on the server, so changing one needs only a redeploy.
+const download = (file: string, envName: string) =>
+  process.env[envName]?.trim() || `${site.githubUrl}/releases/latest/download/${file}`;
 
-// Installer files uploaded to GitHub Releases by the release workflows.
 export const downloads = {
-  mac: { label: "Download for Mac", file: "MeetingNotes.dmg", url: download("MeetingNotes.dmg") },
-  windows: { label: "Download for Windows", file: "MeetingNotes-Setup.exe", url: download("MeetingNotes-Setup.exe") },
-  android: { label: "Download for Android", file: "MeetingNotes.apk", url: download("MeetingNotes.apk") },
+  mac: { label: "Download for Mac", file: "MeetingNotes.dmg", url: download("MeetingNotes.dmg", "DOWNLOAD_URL_MAC") },
+  windows: { label: "Download for Windows", file: "MeetingNotes-Setup.exe", url: download("MeetingNotes-Setup.exe", "DOWNLOAD_URL_WINDOWS") },
+  android: { label: "Download for Android", file: "MeetingNotes.apk", url: download("MeetingNotes.apk", "DOWNLOAD_URL_ANDROID") },
 } as const;
 
 export type Platform = keyof typeof downloads;
