@@ -107,7 +107,7 @@ Release, but only if every file is under GitHub's 2 GiB asset limit (with the no
 the job leaves a notice instead and the installer is hosted by hand).
 
 Single file or two: a Setup.exe can hold at most about 4.2 GB (Inno Setup 6.5.2 and later; Windows won't start a
-larger program), and the files to install are about 4.3 GB. So `build.ps1` turns on disk spanning
+larger program), and the files to install are about 4.4 GB (the installer compresses them to 4.19 GB: a 2 MB Setup.exe and a 4.18 GB .bin). So `build.ps1` turns on disk spanning
 (`DiskSpanning=yes`, `DiskSliceSize=max`) when they're over 3.9 GB, which gives one small `MeetingNotes-Setup.exe` and
 one `MeetingNotes-Setup-1.bin` of any size. Below that (smaller models) it makes a single Setup.exe as before.
 
