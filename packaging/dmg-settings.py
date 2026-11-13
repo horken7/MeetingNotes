@@ -5,6 +5,7 @@ import os.path
 app = defines["app"]  # noqa: F821 (provided by dmgbuild)
 background = defines["background"]  # noqa: F821
 format = "UDZO"
+size = defines.get("size")  # noqa: F821 (set by make-dmg.sh; dmgbuild's own estimate is too small for big apps)
 filesystem = "HFS+"
 files = [app]
 symlinks = {"Applications": "/Applications"}
