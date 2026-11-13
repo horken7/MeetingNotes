@@ -181,15 +181,27 @@ $reply = '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' | & (Join-
 if ($reply -notmatch '"meeting-notes"') { throw "meetingnotes-mcp.exe didn't answer: $reply" }
 
 # Installer (Inno Setup)
+# ISCC.exe's version from its file information; $null when it has none we can read.
 function Get-FileVersion($path) {
-    try { [version](Get-Item $path).VersionInfo.ProductVersion.Split(' ')[0] } catch { [version]"0.0" }
+    $info = (Get-Item $path).VersionInfo
+    foreach ($text in @($info.ProductVersion, $info.FileVersion)) {
+        if ($text -match '(\d+\.\d+(\.\d+)?)') { return [version]$Matches[1] }
+    }
+    if ($info.FileMajorPart -gt 0) { return [version]::new($info.FileMajorPart, $info.FileMinorPart, $info.FileBuildPart) }
+    return $null
 }
 function Find-Iscc {
     @(
         "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
         "$env:ProgramFiles\Inno Setup 6\ISCC.exe",
         "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe"
-    ) | Where-Object { (Test-Path $_) -and ((Get-FileVersion $_) -ge $MinInnoVersion) } |
+    ) | Where-Object {
+        if (-not (Test-Path $_)) { return $false }
+        $v = Get-FileVersion $_
+        Write-Host "Found $_ (version $v)"
+        # An unreadable version gets the benefit of the doubt: ISCC itself rejects DiskSliceSize=max when too old.
+        ($null -eq $v) -or ($v -ge $MinInnoVersion)
+    } |
         Select-Object -First 1
 }
 $iscc = Find-Iscc
@@ -199,7 +211,7 @@ if (-not $iscc) {
     $iscc = Find-Iscc
     if (-not $iscc) { throw "Inno Setup $MinInnoVersion or later is needed (DiskSliceSize=max)" }
 }
-Write-Host "Inno Setup: $iscc ($((Get-Item $iscc).VersionInfo.ProductVersion))"
+Write-Host "Inno Setup: $iscc ($(Get-FileVersion $iscc))"
 $payload = (Get-ChildItem $app -Recurse -File | Measure-Object -Property Length -Sum).Sum
 $span = if ($payload -gt $MaxSingleExeBytes) { "1" } else { "0" }
 "Files to install: {0:N0} bytes ({1:N2} GB); disk spanning: {2}" -f $payload, ($payload / 1e9), $span | Write-Host
