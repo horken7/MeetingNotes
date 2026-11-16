@@ -59,15 +59,17 @@ and the [iPhone app](ios/README.md) use the same folder layout, on the phone.
 
 | Platform | Download | Requirements |
 |---|---|---|
-| Mac | MeetingNotes.dmg (about 4 GB; the download link is on the [latest release](https://github.com/horken7/MeetingNotes/releases/latest)) | macOS 15 (Sequoia) or newer, Apple silicon or Intel, 8 GB of memory, about 4 GB of disk |
-| Windows | MeetingNotes-Setup.exe + MeetingNotes-Setup-1.bin (about 4.2 GB; the download link is on the [latest release](https://github.com/horken7/MeetingNotes/releases/latest)) | Windows 10 (1809) or 11, x64 (Windows on Arm runs it emulated), 8 GB of memory, about 5 GB of disk |
+| Mac | [MeetingNotes.dmg](https://drive.google.com/file/d/1-FQzOC9lc7zP0iSmVUwCQ9DwP-oJm7Ku/view?usp=sharing) (about 4 GB, on Google Drive) | macOS 15 (Sequoia) or newer, Apple silicon or Intel, 8 GB of memory, about 4 GB of disk |
+| Windows | [MeetingNotes-Setup.zip](https://drive.google.com/file/d/1EU8sMa9FQU9WQxFmeQGM_VDFuMABvnr7/view?usp=sharing) (Setup.exe + Setup-1.bin, about 4.2 GB, on Google Drive) | Windows 10 (1809) or 11, x64 (Windows on Arm runs it emulated), 8 GB of memory, about 5 GB of disk |
 | Android | [MeetingNotes.apk](https://github.com/horken7/MeetingNotes/releases/latest/download/MeetingNotes.apk) | Android 10 or newer, 64-bit Arm (most phones from 2019 on), 4 GB of memory |
 | iPhone | Build from source with Xcode ([below](#iphone)); not on the App Store yet | iOS 26 or newer |
 
 The files are on the [latest GitHub Release](https://github.com/horken7/MeetingNotes/releases/latest). The models are
 inside each download, so nothing more is downloaded at first run: the APK (about 1.4 GB) has the speech and notes
 models, and the Mac DMG (about 4 GB) and the Windows installer (about 4.2 GB) also have the built-in notes model. Those
-two are over GitHub's 2 GB limit for a release file, so the release links to where they're hosted; each Mac build is
+two are over GitHub's 2 GB limit for a release file, so they're in the
+**[Meeting Notes downloads folder on Google Drive](https://drive.google.com/drive/folders/1eXQiyDCUPwSavgwuqvYG3LUZNnXXIWfh)** (Google warns that it can't scan files this big for viruses:
+click **Download anyway**); each Mac build is
 also kept for 30 days as the `MeetingNotes-dmg` artifact of the
 [Mac app workflow](https://github.com/horken7/MeetingNotes/actions/workflows/release-mac.yml).
 
@@ -77,7 +79,7 @@ Android together for €59, VAT included, paid once through Stripe. Buying also 
 
 ### Mac
 
-1. Download MeetingNotes.dmg (about 4 GB, see above), open it and drag **Meeting Notes** to **Applications**, or to
+1. Download [MeetingNotes.dmg](https://drive.google.com/file/d/1-FQzOC9lc7zP0iSmVUwCQ9DwP-oJm7Ku/view?usp=sharing) (about 4 GB, from Google Drive), open it and drag **Meeting Notes** to **Applications**, or to
    any other folder you like (for example `~/Applications`): the app works from anywhere. It needs about 4 GB of disk.
 2. Open it. The app is signed ad hoc and **not notarized** by Apple, so the first time macOS says it can't verify the
    app. Click **Done** (not Move to Trash), open **System Settings > Privacy & Security**, scroll down to the message
@@ -92,8 +94,8 @@ ChatGPT or OpenAI login, and Ollama's default model about 8 GB of disk and 16 GB
 
 ### Windows
 
-Download **MeetingNotes-Setup.exe** and **MeetingNotes-Setup-1.bin** (or the zip with both) from the link on the
-[latest release](https://github.com/horken7/MeetingNotes/releases/latest), put them in the same folder and run
+Download **MeetingNotes-Setup.exe** and **MeetingNotes-Setup-1.bin** (or the zip with both) from the
+[Google Drive folder](https://drive.google.com/drive/folders/1eXQiyDCUPwSavgwuqvYG3LUZNnXXIWfh), put them in the same folder and run
 MeetingNotes-Setup.exe. By default it installs for your user only (no administrator rights) to
 `%LOCALAPPDATA%\Programs\MeetingNotes`; you can pick another folder (another drive, for example), or install for all
 users if you have administrator rights. Updates reuse that folder. The installer isn't signed yet, so the first time

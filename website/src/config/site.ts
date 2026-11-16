@@ -27,12 +27,19 @@ export function siteUrl(): string {
 // Installer files from the latest GitHub Release, unless an env var points somewhere else
 // (DOWNLOAD_URL_MAC, DOWNLOAD_URL_WINDOWS, DOWNLOAD_URL_ANDROID): installers over GitHub's 2 GB limit are hosted
 // elsewhere, for example a shared Google Drive link. Read on the server, so changing one needs only a redeploy.
-const download = (file: string, envName: string) =>
-  process.env[envName]?.trim() || `${site.githubUrl}/releases/latest/download/${file}`;
+const download = (file: string, envName: string, hosted?: string) =>
+  process.env[envName]?.trim() || hosted || `${site.githubUrl}/releases/latest/download/${file}`;
+
+// The Mac and Windows installers (about 4 GB each, with the built-in notes model) are over GitHub's 2 GB limit for a
+// release file, so they're on Google Drive. Update these when a new version is uploaded.
+const hosted = {
+  mac: "https://drive.google.com/file/d/1-FQzOC9lc7zP0iSmVUwCQ9DwP-oJm7Ku/view?usp=sharing",
+  windows: "https://drive.google.com/file/d/1EU8sMa9FQU9WQxFmeQGM_VDFuMABvnr7/view?usp=sharing",
+};
 
 export const downloads = {
-  mac: { label: "Download for Mac", file: "MeetingNotes.dmg", url: download("MeetingNotes.dmg", "DOWNLOAD_URL_MAC") },
-  windows: { label: "Download for Windows", file: "MeetingNotes-Setup.exe", url: download("MeetingNotes-Setup.exe", "DOWNLOAD_URL_WINDOWS") },
+  mac: { label: "Download for Mac", file: "MeetingNotes.dmg", url: download("MeetingNotes.dmg", "DOWNLOAD_URL_MAC", hosted.mac) },
+  windows: { label: "Download for Windows", file: "MeetingNotes-Setup.zip", url: download("MeetingNotes-Setup.zip", "DOWNLOAD_URL_WINDOWS", hosted.windows) },
   android: { label: "Download for Android", file: "MeetingNotes.apk", url: download("MeetingNotes.apk", "DOWNLOAD_URL_ANDROID") },
 } as const;
 
