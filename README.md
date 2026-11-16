@@ -59,8 +59,8 @@ and the [iPhone app](ios/README.md) use the same folder layout, on the phone.
 
 | Platform | Download | Requirements |
 |---|---|---|
-| Mac | [MeetingNotes.dmg](https://drive.google.com/drive/folders/1eXQiyDCUPwSavgwuqvYG3LUZNnXXIWfh) (about 4 GB, on Google Drive) | macOS 15 (Sequoia) or newer, Apple silicon or Intel, 8 GB of memory, about 4 GB of disk |
-| Windows | [MeetingNotes-Setup.zip](https://drive.google.com/drive/folders/1eXQiyDCUPwSavgwuqvYG3LUZNnXXIWfh) (Setup.exe + Setup-1.bin, about 4.2 GB, on Google Drive) | Windows 10 (1809) or 11, x64 (Windows on Arm runs it emulated), 8 GB of memory, about 5 GB of disk |
+| Mac | [MeetingNotes.dmg](https://drive.google.com/file/d/1-FQzOC9lc7zP0iSmVUwCQ9DwP-oJm7Ku/view?usp=sharing) (about 4 GB, on Google Drive) | macOS 15 (Sequoia) or newer, Apple silicon or Intel, 8 GB of memory, about 4 GB of disk |
+| Windows | [MeetingNotes-Setup.zip](https://drive.google.com/file/d/1EU8sMa9FQU9WQxFmeQGM_VDFuMABvnr7/view?usp=sharing) (Setup.exe + Setup-1.bin, about 4.2 GB, on Google Drive) | Windows 10 (1809) or 11, x64 (Windows on Arm runs it emulated), 8 GB of memory, about 5 GB of disk |
 | Android | [MeetingNotes.apk](https://github.com/horken7/MeetingNotes/releases/latest/download/MeetingNotes.apk) | Android 10 or newer, 64-bit Arm (most phones from 2019 on), 4 GB of memory |
 | iPhone | Build from source with Xcode ([below](#iphone)); not on the App Store yet | iOS 26 or newer |
 
@@ -79,7 +79,7 @@ Android together for €59, VAT included, paid once through Stripe. Buying also 
 
 ### Mac
 
-1. Download [MeetingNotes.dmg](https://drive.google.com/drive/folders/1eXQiyDCUPwSavgwuqvYG3LUZNnXXIWfh) (about 4 GB, from Google Drive), open it and drag **Meeting Notes** to **Applications**, or to
+1. Download [MeetingNotes.dmg](https://drive.google.com/file/d/1-FQzOC9lc7zP0iSmVUwCQ9DwP-oJm7Ku/view?usp=sharing) (about 4 GB, from Google Drive), open it and drag **Meeting Notes** to **Applications**, or to
    any other folder you like (for example `~/Applications`): the app works from anywhere. It needs about 4 GB of disk.
 2. Open it. The app is signed ad hoc and **not notarized** by Apple, so the first time macOS says it can't verify the
    app. Click **Done** (not Move to Trash), open **System Settings > Privacy & Security**, scroll down to the message
